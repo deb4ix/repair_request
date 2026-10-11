@@ -1,7 +1,7 @@
 import customtkinter as ctk
+from tkinter import ttk
 
 class MainWindow(ctk.CTk):
-sfef
     def __init__(self):
         super().__init__()
 
@@ -53,11 +53,26 @@ sfef
             pady = (0, 30)
         )
 
-        self.requests_placeholder = ctk.CTkLabel(
+        self.request_table = ttk.Treeview(
             self.requests_frame,
-            text = "Здесь отображается список заявок"
+            columns=("id", "title", "status"),
+            show="headings",
         )
-        self.requests_placeholder.pack(pady = 20)
+
+        self.request_table.heading("id", text="Номер")
+        self.request_table.heading("title", text="Название заявки")
+        self.request_table.heading("status", text="Статус")
+
+        self.request_table.column("id", width=60, anchor="center")
+        self.request_table.column("status", width=400)
+        self.request_table.column("status", width=150, anchor="center")
+
+        self.request_table.pack(
+            fill="both",
+            expand=True,
+            padx = 10,
+            pady = 10
+        )
 
     def show_requests(self):
         self.page_title.configure(text="Заявки на ремонт")
