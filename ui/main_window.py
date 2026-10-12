@@ -80,8 +80,115 @@ class MainWindow(ctk.CTk):
             text="Просмотр и управление заявками"
         )
 
+        if hasattr(self, "settings_frame"):
+            self.settings_frame.destroy()
+            del self.settings_frame
+
+        self.requests_frame.pack(
+            fill="both",
+            expand=True,
+            padx = 30,
+            pady = (0, 30)
+        )
+
     def show_settings(self):
         self.page_title.configure(text="Настройки")
         self.page_description.configure(
             text="Настройки приложения"
         )
+
+        self.requests_frame.pack_forget()
+
+        if hasattr(self, "settings_frame"):
+            self.settings_frame.destroy()
+
+        self.settings_frame = ctk.CTkFrame(self.content)
+        self.settings_frame.pack(
+            fill="both",
+            expand=True,
+            padx = 30,
+            pady = (0, 30)
+        )
+
+        self.settings_title = ctk.CTkLabel(
+            self.settings_frame,
+            text="Внешний вид",
+            font=("Arial", 20, "bold")
+        )
+        self.settings_title.pack(
+            anchor="w",
+            padx=20,
+            pady=(20, 10)
+        )
+
+        self.theme_description = ctk.CTkLabel(
+            self.settings_frame,
+            text="Цветовая тема приложения"
+        )
+        self.theme_description.pack(
+            anchor="w",
+            padx=20,
+            pady=(0, 15)
+        )
+
+        self.theme_selector = ctk.CTkSegmentedButton(
+            self.settings_frame,
+            values=["Светлая", "Тёмная"],
+            command=self.change_theme
+        )
+        self.theme_selector.pack(
+            anchor="w",
+            padx=20,
+            pady=10
+        )
+
+        current_theme = ctk.get_appearance_mode()
+
+        if current_theme == "Light":
+            self.theme_selector.set("Светлая")
+        else:
+            self.theme_selector.set("Тёмная")
+
+        for widget in self.requests_frame.winfo_children():
+            widget.destroy()
+
+        self.settings_title = ctk.CTkLabel(
+            self.requests_frame,
+            text="Внешний вид",
+            font = ("Arial", 20, "bold")
+        )
+        self.settings_title.pack(
+            anchor = "w",
+            padx = 20,
+            pady =(20, 10))
+
+        self.theme_description = ctk.CTkLabel(
+            self.requests_frame,
+            text = "Выберите цветовую тему приложения"
+        )
+        self.theme_description.pack(
+            anchor = "w",
+            padx = 20,
+            pady =(0, 15)
+        )
+
+        self.theme_selector = ctk.CTkSegmentedButton(
+            self.requests_frame,
+            values = ["Светлая", "Тёмная"],
+            command = self.change_theme
+        )
+        self.theme_selector.pack(
+            anchor = "w",
+            padx = 20,
+            pady = 10
+        )
+
+        self.theme_selector.set("Тёмная")
+
+    def change_theme(self, selected_theme):
+        themes = {
+            "Светлая": "Light",
+            "Тёмная": "Dark"
+        }
+
+        ctk.set_appearance_mode(themes[selected_theme])
