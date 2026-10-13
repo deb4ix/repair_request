@@ -1,8 +1,22 @@
 from database.connection import get_connection
 
+def delete_request(request_id: int) -> bool:
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM repair_requests
+                WHERE id = %s
+                RETURNING id;
+                """,
+                (request_id,),
+            )
+            deleted_request = cursor.fetchone()
+
+    return deleted_request is not None
+
 
 def get_all_requests():
-    """Возвращает все заявки из базы данных."""
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -16,7 +30,6 @@ def get_all_requests():
 
 
 def create_request(title, description):
-    """Создаёт новую заявку в базе данных."""
     title = title.strip()
     description = description.strip()
 

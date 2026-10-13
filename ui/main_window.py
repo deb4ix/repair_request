@@ -4,6 +4,7 @@ from tkinter import ttk, messagebox
 from services.request_service import (
     get_all_requests,
     create_request,
+    delete_request,
 )
 
 
@@ -89,6 +90,7 @@ class MainWindow(ctk.CTk):
             self.content,
         )
 
+        # Панель действий над заявками
         self.request_actions = ctk.CTkFrame(
             self.requests_frame,
             fg_color="transparent",
@@ -99,6 +101,7 @@ class MainWindow(ctk.CTk):
             pady=10,
         )
 
+        # Кнопка создания заявки
         self.add_request_button = ctk.CTkButton(
             self.request_actions,
             text="Добавить заявку",
@@ -109,6 +112,7 @@ class MainWindow(ctk.CTk):
             padx=(0, 10),
         )
 
+        # Кнопка обновления таблицы
         self.refresh_button = ctk.CTkButton(
             self.request_actions,
             text="Обновить",
@@ -116,12 +120,29 @@ class MainWindow(ctk.CTk):
             fg_color="gray",
             hover_color="#555555",
         )
-        self.refresh_button.pack(side="left")
+        self.refresh_button.pack(
+            side="left",
+        )
 
+        # Кнопка удаления выбранной заявки
+        self.delete_button = ctk.CTkButton(
+            self.request_actions,
+            text="Удалить заявку",
+            command=self.delete_selected_request,
+            fg_color="#C62828",
+            hover_color="#8E0000",
+        )
+        self.delete_button.pack(
+            side="left",
+            padx=(10, 0),
+        )
+
+        # Таблица заявок
         self.request_table = ttk.Treeview(
             self.requests_frame,
             columns=("id", "title", "status"),
             show="headings",
+            selectmode="browse",
         )
 
         self.request_table.heading(
@@ -183,9 +204,11 @@ class MainWindow(ctk.CTk):
         try:
             requests = get_all_requests()
 
+            # Удаляем старые строки таблицы
             for item in self.request_table.get_children():
                 self.request_table.delete(item)
 
+            # Загружаем актуальные заявки
             for request in requests:
                 self.request_table.insert(
                     "",
@@ -197,6 +220,86 @@ class MainWindow(ctk.CTk):
             messagebox.showerror(
                 "Ошибка загрузки",
                 f"Не удалось загрузить заявки:\n{error}",
+                parent=self,
+            )
+
+    def delete_selected_request(self):
+        # Проверяем, выбрана ли заявка
+        selected_items = self.request_table.selection()
+
+        if not selected_items:
+            messagebox.showwarning(
+                "Заявка не выбрана",
+                "Сначала выберите заявку в таблице.",
+                parent=self,
+            )
+            return
+
+        # Получаем данные выбранной строки
+        selected_item = selected_items[0]
+        values = self.request_table.item(
+            selected_item,
+            "values",
+        )
+
+        if not values or len(values) < 2:
+            messagebox.showerror(
+                "Ошибка",
+                "Не удалось получить данные выбранной заявки.",
+                parent=self,
+            )
+            return
+
+        try:
+            request_id = int(values[0])
+        except (ValueError, TypeError):
+            messagebox.showerror(
+                "Ошибка",
+                "Не удалось определить номер заявки.",
+                parent=self,
+            )
+            return
+
+        request_title = values[1]
+
+        # Запрашиваем подтверждение
+        confirmed = messagebox.askyesno(
+            "Подтверждение удаления",
+            f"Вы действительно хотите удалить заявку "
+            f"№{request_id} «{request_title}»?\n\n"
+            "Это действие нельзя отменить.",
+            parent=self,
+        )
+
+        if not confirmed:
+            return
+
+        try:
+            # Удаляем заявку через сервисный слой
+            deleted = delete_request(request_id)
+
+            if deleted:
+                # Обновляем таблицу из базы данных
+                self.load_requests()
+
+                messagebox.showinfo(
+                    "Удаление выполнено",
+                    f"Заявка №{request_id} успешно удалена.",
+                    parent=self,
+                )
+            else:
+                messagebox.showwarning(
+                    "Заявка не найдена",
+                    f"Заявка №{request_id} не найдена в базе данных.",
+                    parent=self,
+                )
+
+                self.load_requests()
+
+        except Exception as error:
+            messagebox.showerror(
+                "Ошибка удаления",
+                f"Не удалось удалить заявку:\n{error}",
                 parent=self,
             )
 
@@ -272,6 +375,7 @@ class MainWindow(ctk.CTk):
 
     def save_request(self):
         title = self.request_title_entry.get().strip()
+
         description = (
             self.request_description_entry
             .get("1.0", "end")
@@ -309,7 +413,9 @@ class MainWindow(ctk.CTk):
             )
 
     def show_settings(self):
-        self.page_title.configure(text="Настройки")
+        self.page_title.configure(
+            text="Настройки",
+        )
         self.page_description.configure(
             text="Настройки приложения",
         )
