@@ -1,12 +1,12 @@
 import customtkinter as ctk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+from pathlib import Path
 
 from services.request_service import (
     get_all_requests,
     create_request,
     delete_request,
 )
-
 
 class MainWindow(ctk.CTk):
     def __init__(self):
@@ -304,10 +304,11 @@ class MainWindow(ctk.CTk):
             )
 
     def open_create_request(self):
+        self.selected_photo_path = None
         self.request_window = ctk.CTkToplevel(self)
         self.request_window.title("Новая заявка")
-        self.request_window.geometry("500x450")
-        self.request_window.minsize(400, 400)
+        self.request_window.geometry("500x700")
+        self.request_window.minsize(500, 650)
         self.request_window.transient(self)
         self.request_window.grab_set()
 
@@ -336,6 +337,50 @@ class MainWindow(ctk.CTk):
         )
         self.request_title_entry.pack(
             fill="x",
+            padx=25,
+            pady=(0, 15),
+        )
+
+        ctk.CTkLabel(
+            self.request_window,
+            text="Фотография поломки",
+        ).pack(
+            anchor="w",
+            padx=25,
+            pady=(0, 5),
+        )
+
+        self.select_photo_button = ctk.CTkButton(
+            self.request_window,
+            text="Выбрать фотографию",
+            command=self.select_photo,
+        )
+        self.select_photo_button.pack(
+            anchor="w",
+            padx=25,
+            pady=(0, 5),
+        )
+
+        self.photo_label = ctk.CTkLabel(
+            self.request_window,
+            text="Фотография не выбрана",
+            wraplength=400,
+        )
+        self.photo_label.pack(
+            anchor="w",
+            padx=25,
+            pady=(0, 5),
+        )
+
+        self.remove_photo_button = ctk.CTkButton(
+            self.request_window,
+            text="Убрать фотографию",
+            command=self.remove_photo,
+            fg_color="gray",
+            hover_color="#555555",
+        )
+        self.remove_photo_button.pack(
+            anchor="w",
             padx=25,
             pady=(0, 15),
         )
@@ -372,6 +417,53 @@ class MainWindow(ctk.CTk):
         )
 
         self.request_title_entry.focus()
+
+    def select_photo(self):
+        file_path = filedialog.askopenfilename(
+            parent=self.request_window,
+            title="Выберите фотографию поломки",
+            filetypes=[
+                (
+                    "Фотографии",
+                    "*.png *.jpg *.jpeg *.webp *.bmp",
+                ),
+                ("Все файлы", "*.*"),
+            ],
+        )
+
+        if not file_path:
+            return
+
+        allowed_extensions = {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".bmp",
+        }
+
+        photo_path = Path(file_path)
+
+        if photo_path.suffix.lower() not in allowed_extensions:
+            messagebox.showwarning(
+                "Неверный формат",
+                "Выберите изображение PNG, JPG, JPEG, WEBP или BMP.",
+                parent=self.request_window,
+            )
+            return
+
+        self.selected_photo_path = str(photo_path)
+
+        self.photo_label.configure(
+            text=f"Выбрано: {photo_path.name}",
+        )
+
+    def remove_photo(self):
+        self.selected_photo_path = None
+
+        self.photo_label.configure(
+            text="Фотография не выбрана",
+        )
 
     def save_request(self):
         title = self.request_title_entry.get().strip()
