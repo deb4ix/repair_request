@@ -90,7 +90,6 @@ class MainWindow(ctk.CTk):
             self.content,
         )
 
-        # Панель действий над заявками
         self.request_actions = ctk.CTkFrame(
             self.requests_frame,
             fg_color="transparent",
@@ -101,7 +100,44 @@ class MainWindow(ctk.CTk):
             pady=10,
         )
 
-        # Кнопка создания заявки
+        search_frame = ctk.CTkFrame(self)
+        search_frame.pack(fill="x", padx=20, pady=(10, 5))
+
+        self.search_entry = ctk.CTkEntry(
+            search_frame,
+            placeholder_text="Поиск по названию заявки..."
+        )
+        self.search_entry.pack(
+            side="left",
+            fill="x",
+            expand=True,
+            padx=(10, 5),
+            pady=10
+        )
+
+        self.search_entry.bind(
+            "<KeyRelease>",
+            lambda event: self.load_requests()
+        )
+
+        self.status_filter = ctk.CTkComboBox(
+            search_frame,
+            values=[
+                "Все статусы",
+                "Новая",
+                "В работе",
+                "Завершена"
+            ],
+            command=lambda value: self.load_requests(),
+            width=160
+        )
+        self.status_filter.pack(
+            side="left",
+            padx=(5, 10),
+            pady=10
+        )
+        self.status_filter.set("Все статусы")
+
         self.add_request_button = ctk.CTkButton(
             self.request_actions,
             text="Добавить заявку",
@@ -112,7 +148,6 @@ class MainWindow(ctk.CTk):
             padx=(0, 10),
         )
 
-        # Кнопка обновления таблицы
         self.refresh_button = ctk.CTkButton(
             self.request_actions,
             text="Обновить",
@@ -124,7 +159,6 @@ class MainWindow(ctk.CTk):
             side="left",
         )
 
-        # Кнопка удаления выбранной заявки
         self.delete_button = ctk.CTkButton(
             self.request_actions,
             text="Удалить заявку",
@@ -137,7 +171,6 @@ class MainWindow(ctk.CTk):
             padx=(10, 0),
         )
 
-        # Таблица заявок
         self.request_table = ttk.Treeview(
             self.requests_frame,
             columns=("id", "title", "status"),
@@ -201,30 +234,34 @@ class MainWindow(ctk.CTk):
         )
 
     def load_requests(self):
-        try:
-            requests = get_all_requests()
+        requests = get_all_requests()
 
-            # Удаляем старые строки таблицы
-            for item in self.request_table.get_children():
-                self.request_table.delete(item)
+        search_text = self.search_entry.get().strip().lower()
 
-            # Загружаем актуальные заявки
-            for request in requests:
-                self.request_table.insert(
-                    "",
-                    "end",
-                    values=request,
-                )
+        selected_status = self.status_filter.get()
 
-        except Exception as error:
-            messagebox.showerror(
-                "Ошибка загрузки",
-                f"Не удалось загрузить заявки:\n{error}",
-                parent=self,
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        for request in requests:
+            request_id, title, status = request
+
+            if search_text and search_text not in title.lower():
+                continue
+
+            if (
+                    selected_status != "Все статусы"
+                    and status != selected_status
+            ):
+                continue
+
+            self.tree.insert(
+                "",
+                "end",
+                values=(request_id, title, status)
             )
 
     def delete_selected_request(self):
-        # Проверяем, выбрана ли заявка
         selected_items = self.request_table.selection()
 
         if not selected_items:
@@ -235,7 +272,6 @@ class MainWindow(ctk.CTk):
             )
             return
 
-        # Получаем данные выбранной строки
         selected_item = selected_items[0]
         values = self.request_table.item(
             selected_item,
@@ -262,7 +298,6 @@ class MainWindow(ctk.CTk):
 
         request_title = values[1]
 
-        # Запрашиваем подтверждение
         confirmed = messagebox.askyesno(
             "Подтверждение удаления",
             f"Вы действительно хотите удалить заявку "
@@ -275,11 +310,9 @@ class MainWindow(ctk.CTk):
             return
 
         try:
-            # Удаляем заявку через сервисный слой
             deleted = delete_request(request_id)
 
             if deleted:
-                # Обновляем таблицу из базы данных
                 self.load_requests()
 
                 messagebox.showinfo(
