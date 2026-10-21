@@ -19,13 +19,20 @@ def delete_request(request_id: int) -> bool:
 def get_all_requests():
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT id, title, status
+            cursor.execute("""
+                SELECT
+                    id,
+                    title,
+                    CASE status
+                        WHEN 'new' THEN 'Новая'
+                        WHEN 'in_progress' THEN 'В работе'
+                        WHEN 'completed' THEN 'Завершена'
+                        WHEN 'cancelled' THEN 'Отменена'
+                        ELSE status
+                    END AS status
                 FROM repair_requests
                 ORDER BY id DESC;
-                """
-            )
+            """)
             return cursor.fetchall()
 
 

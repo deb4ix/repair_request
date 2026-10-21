@@ -171,47 +171,6 @@ class MainWindow(ctk.CTk):
             padx=(10, 0),
         )
 
-        self.search_frame = ctk.CTkFrame(
-            self.requests_frame,
-            fg_color="transparent",
-        )
-        self.search_frame.pack(
-            fill="x",
-            padx=10,
-            pady=(0, 10),
-        )
-
-        self.search_entry = ctk.CTkEntry(
-            self.search_frame,
-            placeholder_text="Поиск по названию заявки...",
-        )
-        self.search_entry.pack(
-            side="left",
-            fill="x",
-            expand=True,
-            padx=(0, 10),
-        )
-
-        self.status_filter = ctk.CTkComboBox(
-            self.search_frame,
-            values=[
-                "Все статусы",
-                "Новая",
-                "В работе",
-                "Завершена",
-            ],
-            command=lambda _: self.load_requests(),
-            state="readonly",
-            width=180,
-        )
-        self.status_filter.pack(side="left")
-        self.status_filter.set("Все статусы")
-
-        self.search_entry.bind(
-            "<KeyRelease>",
-            lambda event: self.load_requests(),
-        )
-
         self.request_table = ttk.Treeview(
             self.requests_frame,
             columns=("id", "title", "status"),
@@ -275,47 +234,31 @@ class MainWindow(ctk.CTk):
         )
 
     def load_requests(self):
-        try:
-            # Получаем заявки из базы данных
-            requests = get_all_requests()
+        requests = get_all_requests()
 
-            # Получаем параметры поиска
-            search_text = self.search_entry.get().strip().casefold()
-            selected_status = self.status_filter.get().strip().casefold()
+        search_text = self.search_entry.get().strip().lower()
 
-            # Очищаем таблицу
-            for item in self.request_table.get_children():
-                self.request_table.delete(item)
+        selected_status = self.status_filter.get()
 
-            # Фильтруем и отображаем заявки
-            for request in requests:
-                request_id, title, status = request
+        for item in self.request_table.get_children():
+            self.request_table.delete(item)
 
-                title = str(title or "")
-                status = str(status or "")
+        for request in requests:
+            request_id, title, status = request
 
-                # Поиск по названию
-                if search_text and search_text not in title.casefold():
-                    continue
+            if search_text and search_text not in title.lower():
+                continue
 
-                # Фильтр по статусу
-                if (
-                        selected_status != "все статусы"
-                        and status.strip().casefold() != selected_status
-                ):
-                    continue
+            if (
+                    selected_status != "Все статусы"
+                    and status != selected_status
+            ):
+                continue
 
-                self.request_table.insert(
-                    "",
-                    "end",
-                    values=(request_id, title, status),
-                )
-
-        except Exception as error:
-            messagebox.showerror(
-                "Ошибка загрузки",
-                f"Не удалось загрузить заявки:\n{error}",
-                parent=self,
+            self.request_table.insert(
+                "",
+                "end",
+                values=(request_id, title, status),
             )
 
     def delete_selected_request(self):
