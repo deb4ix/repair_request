@@ -234,6 +234,7 @@ class MainWindow(ctk.CTk):
         )
 
     def load_requests(self):
+<<<<<<< Updated upstream
         requests = get_all_requests()
 
         search_text = self.search_entry.get().strip().lower()
@@ -242,10 +243,24 @@ class MainWindow(ctk.CTk):
 
         for item in self.request_table.get_children():
             self.request_table.delete(item)
+=======
+        try:
+            requests = get_all_requests()
+
+            search_text = self.search_entry.get().strip().casefold()
+            selected_status = self.status_filter.get().strip().casefold()
+
+            for item in self.request_table.get_children():
+                self.request_table.delete(item)
+
+            for request in requests:
+                request_id, title, status = request
+>>>>>>> Stashed changes
 
         for request in requests:
             request_id, title, status = request
 
+<<<<<<< Updated upstream
             if search_text and search_text not in title.lower():
                 continue
 
@@ -254,6 +269,16 @@ class MainWindow(ctk.CTk):
                     and status != selected_status
             ):
                 continue
+=======
+                if search_text and search_text not in title.casefold():
+                    continue
+
+                if (
+                        selected_status != "все статусы"
+                        and status.strip().casefold() != selected_status
+                ):
+                    continue
+>>>>>>> Stashed changes
 
             self.request_table.insert(
                 "",
