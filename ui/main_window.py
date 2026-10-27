@@ -234,77 +234,108 @@ class MainWindow(ctk.CTk):
         )
 
     def load_requests(self):
-        requests = get_all_requests()
+
+        try:
+            requests = get_all_requests()
+        except Exception as error:
+            messagebox.showerror(
+                "Ошибка загрузки",
+                f"Не удалось загрузить заявки из базы данных:\n{error}",
+                parent=self,
+            )
+            return
 
         search_text = self.search_entry.get().strip().lower()
-
         selected_status = self.status_filter.get()
+
+        status_names = {
+            "new": "Новая",
+            "in_progress": "В работе",
+            "completed": "Завершена",
+            "cancelled": "Отменена",
+        }
 
         for item in self.request_table.get_children():
             self.request_table.delete(item)
 
+        row_number = 0
+
         for request in requests:
             request_id, title, status = request
+
+            display_status = status_names.get(status, status)
 
             if search_text and search_text not in title.lower():
                 continue
 
             if (
                     selected_status != "Все статусы"
-                    and status != selected_status
+                    and display_status != selected_status
             ):
                 continue
+
+            row_number += 1
 
             self.request_table.insert(
                 "",
                 "end",
-                values=(request_id, title, status),
+                iid=str(request_id),
+                values=(
+                    row_number,
+                    title,
+                    display_status,
+                ),
             )
 
     def delete_selected_request(self):
+        """Удаляет выбранную заявку по её настоящему ID."""
+
         selected_items = self.request_table.selection()
 
         if not selected_items:
             messagebox.showwarning(
-                "Заявка не выбрана",
-                "Сначала выберите заявку в таблице.",
+                "Внимание",
+                "Сначала выберите заявку для удаления.",
                 parent=self,
             )
             return
 
-        selected_item = selected_items[0]
-        values = self.request_table.item(
-            selected_item,
-            "values",
+        # iid строки содержит настоящий ID заявки из PostgreSQL.
+        request_id = int(selected_items[0])
+
+        confirm = messagebox.askyesno(
+            "Подтверждение удаления",
+            "Вы действительно хотите удалить выбранную заявку?",
+            parent=self,
         )
 
-        if not values or len(values) < 2:
-            messagebox.showerror(
-                "Ошибка",
-                "Не удалось получить данные выбранной заявки.",
-                parent=self,
-            )
+        if not confirm:
             return
 
         try:
-            request_id = int(values[0])
-        except (ValueError, TypeError):
+            deleted = delete_request(request_id)
+
+            if deleted:
+                messagebox.showinfo(
+                    "Успешно",
+                    "Заявка успешно удалена.",
+                    parent=self,
+                )
+                self.load_requests()
+            else:
+                messagebox.showwarning(
+                    "Не найдено",
+                    f"Заявка с ID {request_id} не найдена в базе данных.",
+                    parent=self,
+                )
+                self.load_requests()
+
+        except Exception as error:
             messagebox.showerror(
-                "Ошибка",
-                "Не удалось определить номер заявки.",
+                "Ошибка удаления",
+                f"Не удалось удалить заявку:\n{error}",
                 parent=self,
             )
-            return
-
-        request_title = values[1]
-
-        confirmed = messagebox.askyesno(
-            "Подтверждение удаления",
-            f"Вы действительно хотите удалить заявку "
-            f"№{request_id} «{request_title}»?\n\n"
-            "Это действие нельзя отменить.",
-            parent=self,
-        )
 
         if not confirmed:
             return
@@ -511,6 +542,7 @@ class MainWindow(ctk.CTk):
             request_id = create_request(
                 title,
                 description,
+                photo_path=self.selected_photo_path,
             )
 
             messagebox.showinfo(
