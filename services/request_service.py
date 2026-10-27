@@ -48,12 +48,35 @@ def create_request(title, description):
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            # Находим первый свободный номер
             cursor.execute(
                 """
-                INSERT INTO repair_requests (title, description)
-                VALUES (%s, %s)
-                RETURNING id;
-                """,
-                (title, description),
+                SELECT MIN(candidate_id)
+                FROM generate_series(
+                    1,
+                    COALESCE(
+                        (SELECT MAX(id) + 1 FROM repair_requests),
+                        1
+                    )
+                ) AS candidate_id
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM repair_requests
+                    WHERE id = candidate_id
+                );
+                """
             )
-            return cursor.fetchone()[0]
+
+            request_id = cursor.fetchone()[0]
+
+            # Создаём заявку с найденным номером
+            cursor.execute(
+                """
+                INSERT INTO repair_requests
+                    (id, title, description)
+                VALUES (%s, %s, %s);
+                """,
+                (request_id, title, description),
+            )
+
+            return request_id
