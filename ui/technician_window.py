@@ -13,22 +13,25 @@ from services.request_service import (
 )
 
 
-class TechnicianWindow(ctk.CTk):
+class TechnicianWindow(ctk.CTkToplevel):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, user, master=None):
+        super().__init__(master)
 
-        self.title("Рабочее место специалиста")
+        self.current_user = user
+        self.title(f"Рабочее место специалиста — {user['username']}")
         self.geometry("1100x700")
         self.minsize(850, 550)
+        self.protocol("WM_DELETE_WINDOW", self.logout)
 
         self.selected_request_id = None
+        self._auto_refresh_id = None
 
         self.create_widgets()
         self.load_requests()
 
         # Автоматически обновляем список каждые 5 секунд.
-        self.after(5000, self.auto_refresh)
+        self._auto_refresh_id = self.after(5000, self.auto_refresh)
 
     # --------------------------------------------------
     # Создание интерфейса
@@ -190,6 +193,27 @@ class TechnicianWindow(ctk.CTk):
             command=self.delete_selected_request,
         ).pack(side="left", padx=8, pady=10)
 
+        ctk.CTkButton(
+            buttons_frame,
+            text="Выйти из аккаунта",
+            fg_color="#555555",
+            hover_color="#333333",
+            command=self.logout,
+        ).pack(side="right", padx=8, pady=10)
+
+    def logout(self):
+        # Останавливаем периодическое обновление, пока окно скрыто.
+        if self._auto_refresh_id is not None:
+            try:
+                self.after_cancel(self._auto_refresh_id)
+            except Exception:
+                pass
+            self._auto_refresh_id = None
+        self.withdraw()
+        if self.master is not None and self.master.winfo_exists():
+            self.master.deiconify()
+            self.master.lift()
+
     # --------------------------------------------------
     # Загрузка заявок
     # --------------------------------------------------
@@ -237,11 +261,12 @@ class TechnicianWindow(ctk.CTk):
     # --------------------------------------------------
 
     def auto_refresh(self):
-        if not self.winfo_exists():
+        if not self.winfo_exists() or not self.winfo_viewable():
+            self._auto_refresh_id = None
             return
 
         self.load_requests(show_errors=False)
-        self.after(5000, self.auto_refresh)
+        self._auto_refresh_id = self.after(5000, self.auto_refresh)
 
     # --------------------------------------------------
     # Получение выбранной заявки

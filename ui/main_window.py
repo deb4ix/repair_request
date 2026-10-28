@@ -13,13 +13,15 @@ from services.request_service import (
 )
 
 
-class MainWindow(ctk.CTk):
-    def __init__(self):
-        super().__init__()
+class MainWindow(ctk.CTkToplevel):
+    def __init__(self, user, master=None):
+        super().__init__(master)
 
-        self.title("Учёт заявок на ремонт")
+        self.current_user = user
+        self.title(f"Учёт заявок на ремонт — {user['username']}")
         self.geometry("1100x700")
         self.minsize(800, 600)
+        self.protocol("WM_DELETE_WINDOW", self.logout)
 
         self.selected_photo_path = None
         self.remove_existing_photo = False
@@ -57,6 +59,22 @@ class MainWindow(ctk.CTk):
             command=self.show_settings,
         )
         self.settings_button.pack(fill="x", padx=15, pady=5)
+
+        self.account_label = ctk.CTkLabel(
+            self.sidebar,
+            text=f"Вход: {self.current_user['username']}",
+            wraplength=185,
+        )
+        self.account_label.pack(side="bottom", padx=12, pady=(5, 10))
+
+        self.logout_button = ctk.CTkButton(
+            self.sidebar,
+            text="Выйти из аккаунта",
+            command=self.logout,
+            fg_color="#555555",
+            hover_color="#333333",
+        )
+        self.logout_button.pack(side="bottom", fill="x", padx=15, pady=(5, 0))
 
         self.page_title = ctk.CTkLabel(
             self.content,
@@ -195,7 +213,7 @@ class MainWindow(ctk.CTk):
             self.request_table.delete(item)
 
         try:
-            requests = get_all_requests()
+            requests = get_all_requests(self.current_user["id"])
             search_text = self.search_entry.get().strip().casefold()
             selected_status = self.status_filter.get().strip().casefold()
 
@@ -273,7 +291,7 @@ class MainWindow(ctk.CTk):
             return
 
         try:
-            deleted = delete_request(request_id)
+            deleted = delete_request(request_id, self.current_user["id"])
 
             if deleted:
                 self.load_requests()
@@ -314,7 +332,7 @@ class MainWindow(ctk.CTk):
 
         try:
             request_id = int(values[0])
-            request = get_request_by_id(request_id)
+            request = get_request_by_id(request_id, self.current_user["id"])
 
             if request is None:
                 messagebox.showwarning(
@@ -329,7 +347,7 @@ class MainWindow(ctk.CTk):
             self.selected_photo_path = None
             self.remove_existing_photo = False
 
-            has_photo = get_request_photo(request_id) is not None
+            has_photo = get_request_photo(request_id, self.current_user["id"]) is not None
 
             self.request_window = ctk.CTkToplevel(self)
             self.request_window.title(
@@ -485,6 +503,7 @@ class MainWindow(ctk.CTk):
                 description,
                 photo_path=self.selected_photo_path,
                 remove_photo=self.remove_existing_photo,
+                owner_id=self.current_user["id"],
             )
 
             if not updated:
@@ -649,6 +668,7 @@ class MainWindow(ctk.CTk):
                 title,
                 description,
                 self.selected_photo_path,
+                owner_id=self.current_user["id"],
             )
 
             messagebox.showinfo(
@@ -713,6 +733,14 @@ class MainWindow(ctk.CTk):
             self.theme_selector.set("Светлая")
         else:
             self.theme_selector.set("Тёмная")
+
+    def logout(self):
+        # Не уничтожаем CTkToplevel: скрываем его, чтобы избежать ошибок
+        # от внутренних отложенных задач CustomTkinter при повторном входе.
+        self.withdraw()
+        if self.master is not None and self.master.winfo_exists():
+            self.master.deiconify()
+            self.master.lift()
 
     def change_theme(self, selected_theme):
         themes = {

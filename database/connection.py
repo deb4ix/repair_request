@@ -40,8 +40,7 @@ def get_connection():
         dbname=os.environ["DB_NAME"],
         user=os.environ["DB_USER"],
         password=os.environ["DB_PASSWORD"],
-        connect_timeout=int(
-            os.getenv("DB_CONNECT_TIMEOUT", "5")
-        ),
+        sslmode="require",
+        connect_timeout=10,
         application_name="repair_request_app",
     )
