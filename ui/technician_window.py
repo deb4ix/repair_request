@@ -1,6 +1,7 @@
 import io
-import customtkinter as ctk
+from datetime import datetime
 
+import customtkinter as ctk
 from tkinter import ttk, messagebox
 from PIL import Image
 
@@ -13,54 +14,69 @@ from services.request_service import (
 )
 
 
+def format_datetime(value):
+    """Форматирует дату без секунд, микросекунд и часового пояса."""
+    if value is None:
+        return "Не указано"
+
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(
+                value.replace("Z", "+00:00")
+            )
+        except ValueError:
+            return value
+
+    if isinstance(value, datetime):
+        return value.strftime("%d.%m.%Y %H:%M")
+
+    return str(value)
+
+
 class TechnicianWindow(ctk.CTkToplevel):
 
     def __init__(self, user, master=None):
         super().__init__(master)
 
         self.current_user = user
-        self.title(f"Рабочее место специалиста — {user['username']}")
+        self.title(
+            f"Рабочее место специалиста — {user['username']}"
+        )
         self.geometry("1100x700")
         self.minsize(850, 550)
         self.protocol("WM_DELETE_WINDOW", self.logout)
 
-        self.selected_request_id = None
         self._auto_refresh_id = None
 
         self.create_widgets()
         self.load_requests()
 
-        # Автоматически обновляем список каждые 5 секунд.
-        self._auto_refresh_id = self.after(5000, self.auto_refresh)
+        self._auto_refresh_id = self.after(
+            5000, self.auto_refresh
+        )
 
     # --------------------------------------------------
-    # Создание интерфейса
+    # Интерфейс
     # --------------------------------------------------
 
     def create_widgets(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        title_label = ctk.CTkLabel(
+        ctk.CTkLabel(
             self,
             text="Заявки на ремонт",
             font=ctk.CTkFont(size=24, weight="bold"),
-        )
-        title_label.grid(
-            row=0,
-            column=0,
-            padx=20,
-            pady=(20, 10),
+        ).grid(
+            row=0, column=0,
+            padx=20, pady=(20, 10),
             sticky="w",
         )
 
-        # Панель поиска и фильтрации.
         filter_frame = ctk.CTkFrame(self)
         filter_frame.grid(
-            row=1,
-            column=0,
-            padx=20,
-            pady=10,
+            row=1, column=0,
+            padx=20, pady=10,
             sticky="ew",
         )
         filter_frame.grid_columnconfigure(0, weight=1)
@@ -70,10 +86,8 @@ class TechnicianWindow(ctk.CTkToplevel):
             placeholder_text="Поиск по названию заявки...",
         )
         self.search_entry.grid(
-            row=0,
-            column=0,
-            padx=10,
-            pady=10,
+            row=0, column=0,
+            padx=10, pady=10,
             sticky="ew",
         )
         self.search_entry.bind(
@@ -90,23 +104,20 @@ class TechnicianWindow(ctk.CTkToplevel):
                 "Завершена",
                 "Отменена",
             ],
-            command=lambda value: self.load_requests(show_errors=False),
+            command=lambda value: self.load_requests(
+                show_errors=False
+            ),
         )
         self.status_filter.set("Все статусы")
         self.status_filter.grid(
-            row=0,
-            column=1,
-            padx=10,
-            pady=10,
+            row=0, column=1,
+            padx=10, pady=10,
         )
 
-        # Таблица заявок.
         table_frame = ctk.CTkFrame(self)
         table_frame.grid(
-            row=2,
-            column=0,
-            padx=20,
-            pady=10,
+            row=2, column=0,
+            padx=20, pady=10,
             sticky="nsew",
         )
         table_frame.grid_columnconfigure(0, weight=1)
@@ -139,8 +150,7 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.tree.column("status", width=180, anchor="center")
 
         self.tree.grid(
-            row=0,
-            column=0,
+            row=0, column=0,
             sticky="nsew",
         )
 
@@ -157,13 +167,10 @@ class TechnicianWindow(ctk.CTkToplevel):
             lambda event: self.show_request_details(),
         )
 
-        # Кнопки управления.
         buttons_frame = ctk.CTkFrame(self)
         buttons_frame.grid(
-            row=3,
-            column=0,
-            padx=20,
-            pady=(5, 20),
+            row=3, column=0,
+            padx=20, pady=(5, 20),
             sticky="ew",
         )
 
@@ -201,15 +208,20 @@ class TechnicianWindow(ctk.CTkToplevel):
             command=self.logout,
         ).pack(side="right", padx=8, pady=10)
 
+    # --------------------------------------------------
+    # Выход из аккаунта
+    # --------------------------------------------------
+
     def logout(self):
-        # Останавливаем периодическое обновление, пока окно скрыто.
         if self._auto_refresh_id is not None:
             try:
                 self.after_cancel(self._auto_refresh_id)
             except Exception:
                 pass
             self._auto_refresh_id = None
+
         self.withdraw()
+
         if self.master is not None and self.master.winfo_exists():
             self.master.deiconify()
             self.master.lift()
@@ -225,7 +237,6 @@ class TechnicianWindow(ctk.CTkToplevel):
             search_text = self.search_entry.get().strip().lower()
             selected_status = self.status_filter.get()
 
-            # Удаляем старые строки из таблицы.
             for item in self.tree.get_children():
                 self.tree.delete(item)
 
@@ -266,10 +277,13 @@ class TechnicianWindow(ctk.CTkToplevel):
             return
 
         self.load_requests(show_errors=False)
-        self._auto_refresh_id = self.after(5000, self.auto_refresh)
+
+        self._auto_refresh_id = self.after(
+            5000, self.auto_refresh
+        )
 
     # --------------------------------------------------
-    # Получение выбранной заявки
+    # Выбор заявки
     # --------------------------------------------------
 
     def get_selected_request_id(self):
@@ -286,7 +300,7 @@ class TechnicianWindow(ctk.CTkToplevel):
         return int(selected_items[0])
 
     # --------------------------------------------------
-    # Подробности заявки
+    # Подробности заявки и предпросмотр фото
     # --------------------------------------------------
 
     def show_request_details(self):
@@ -309,8 +323,8 @@ class TechnicianWindow(ctk.CTkToplevel):
 
             details_window = ctk.CTkToplevel(self)
             details_window.title(f"Заявка №{request_id}")
-            details_window.geometry("650x520")
-            details_window.minsize(500, 400)
+            details_window.geometry("720x700")
+            details_window.minsize(500, 450)
             details_window.transient(self)
 
             details_window.grid_columnconfigure(0, weight=1)
@@ -319,21 +333,19 @@ class TechnicianWindow(ctk.CTkToplevel):
             ctk.CTkLabel(
                 details_window,
                 text=f"Заявка №{request['id']}",
-                font=ctk.CTkFont(size=22, weight="bold"),
+                font=ctk.CTkFont(size=24, weight="bold"),
             ).grid(
-                row=0,
-                column=0,
-                padx=20,
-                pady=(20, 10),
+                row=0, column=0,
+                padx=20, pady=(20, 10),
                 sticky="w",
             )
 
-            content_frame = ctk.CTkScrollableFrame(details_window)
+            content_frame = ctk.CTkScrollableFrame(
+                details_window
+            )
             content_frame.grid(
-                row=1,
-                column=0,
-                padx=20,
-                pady=10,
+                row=1, column=0,
+                padx=20, pady=10,
                 sticky="nsew",
             )
             content_frame.grid_columnconfigure(0, weight=1)
@@ -347,9 +359,9 @@ class TechnicianWindow(ctk.CTkToplevel):
             ctk.CTkLabel(
                 content_frame,
                 text=request["title"],
-                wraplength=550,
+                wraplength=620,
                 justify="left",
-            ).pack(anchor="w", pady=(0, 10))
+            ).pack(anchor="w", pady=(0, 12))
 
             ctk.CTkLabel(
                 content_frame,
@@ -360,9 +372,9 @@ class TechnicianWindow(ctk.CTkToplevel):
             ctk.CTkLabel(
                 content_frame,
                 text=request["description"],
-                wraplength=550,
+                wraplength=620,
                 justify="left",
-            ).pack(anchor="w", pady=(0, 10))
+            ).pack(anchor="w", pady=(0, 12))
 
             ctk.CTkLabel(
                 content_frame,
@@ -371,28 +383,65 @@ class TechnicianWindow(ctk.CTkToplevel):
 
             ctk.CTkLabel(
                 content_frame,
-                text=f"Создана: {request['created_at']}",
-                wraplength=550,
+                text=f"Создана: {format_datetime(request['created_at'])}",
+            ).pack(anchor="w", pady=5)
+
+            ctk.CTkLabel(
+                content_frame,
+                text=(
+                    "Последнее обновление: "
+                    f"{format_datetime(request['updated_at'])}"
+                ),
+                wraplength=620,
                 justify="left",
             ).pack(anchor="w", pady=5)
 
             ctk.CTkLabel(
                 content_frame,
-                text=f"Последнее обновление: {request['updated_at']}",
-                wraplength=550,
-                justify="left",
-            ).pack(anchor="w", pady=5)
+                text="Фотография:",
+                font=ctk.CTkFont(weight="bold"),
+            ).pack(anchor="w", pady=(15, 5))
 
-            ctk.CTkButton(
-                details_window,
-                text="Просмотреть фотографию",
-                command=lambda rid=request_id: self.show_request_photo(rid),
-            ).grid(
-                row=2,
-                column=0,
-                padx=20,
-                pady=15,
-            )
+            photo_data = get_request_photo(request_id)
+
+            if photo_data:
+                image = Image.open(
+                    io.BytesIO(photo_data)
+                ).convert("RGB")
+                image.thumbnail((320, 220))
+
+                preview_image = ctk.CTkImage(
+                    light_image=image,
+                    dark_image=image,
+                    size=image.size,
+                )
+
+                preview_label = ctk.CTkLabel(
+                    content_frame,
+                    text="",
+                    image=preview_image,
+                    cursor="hand2",
+                )
+                preview_label.image = preview_image
+                preview_label.pack(anchor="w", pady=5)
+
+                ctk.CTkLabel(
+                    content_frame,
+                    text="Нажмите на фотографию, чтобы увеличить",
+                    text_color="gray",
+                ).pack(anchor="w", pady=(0, 10))
+
+                preview_label.bind(
+                    "<Button-1>",
+                    lambda event, rid=request_id:
+                    self.show_request_photo(rid),
+                )
+            else:
+                ctk.CTkLabel(
+                    content_frame,
+                    text="К заявке не прикреплена фотография.",
+                    text_color="gray",
+                ).pack(anchor="w", pady=5)
 
         except Exception as error:
             messagebox.showerror(
@@ -402,7 +451,7 @@ class TechnicianWindow(ctk.CTkToplevel):
             )
 
     # --------------------------------------------------
-    # Просмотр фотографии в отдельном окне
+    # Полноразмерный просмотр фотографии
     # --------------------------------------------------
 
     def show_request_photo(self, request_id: int):
@@ -417,15 +466,20 @@ class TechnicianWindow(ctk.CTkToplevel):
                 )
                 return
 
-            image = Image.open(io.BytesIO(photo_data))
-            image.load()
-            image.thumbnail((900, 650))
+            image = Image.open(
+                io.BytesIO(photo_data)
+            ).convert("RGB")
 
             photo_window = ctk.CTkToplevel(self)
-            photo_window.title(f"Фотография заявки №{request_id}")
+            photo_window.title(
+                f"Фотография заявки №{request_id}"
+            )
             photo_window.geometry("950x750")
             photo_window.minsize(400, 300)
             photo_window.transient(self)
+
+            # Масштабируем изображение под окно, сохраняя пропорции.
+            image.thumbnail((900, 650))
 
             photo_image = ctk.CTkImage(
                 light_image=image,
@@ -444,8 +498,6 @@ class TechnicianWindow(ctk.CTkToplevel):
                 padx=15,
                 pady=15,
             )
-
-            # Сохраняем ссылку на изображение.
             photo_label.image = photo_image
 
         except Exception as error:
@@ -515,13 +567,14 @@ class TechnicianWindow(ctk.CTkToplevel):
                     )
 
                     if success:
+                        status_window.destroy()
+                        self.load_requests(show_errors=False)
+
                         messagebox.showinfo(
                             "Успешно",
                             "Статус заявки изменён.",
-                            parent=status_window,
+                            parent=self,
                         )
-                        status_window.destroy()
-                        self.load_requests(show_errors=False)
                     else:
                         messagebox.showwarning(
                             "Внимание",
