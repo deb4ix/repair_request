@@ -1,5 +1,6 @@
-
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from database.connection import get_connection
 
@@ -19,47 +20,110 @@ STATUS_VALUES = {
 }
 
 
+def format_datetime(value, timezone_name=None):
+    """
+    Преобразует дату из базы в локальное время пользователя.
+
+    Если часовой пояс не передан, используется часовой пояс
+    операционной системы, на которой запущена программа.
+
+    Возвращает дату без обозначений часового пояса.
+    """
+    if value is None:
+        return "Не указано"
+
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+
+    if value.tzinfo is None:
+        # Если дата без часового пояса, считаем её временем UTC.
+        value = value.replace(tzinfo=ZoneInfo("UTC"))
+
+    if timezone_name:
+        try:
+            local_timezone = ZoneInfo(timezone_name)
+        except Exception:
+            local_timezone = datetime.now().astimezone().tzinfo
+    else:
+        local_timezone = datetime.now().astimezone().tzinfo
+
+    local_datetime = value.astimezone(local_timezone)
+
+    return local_datetime.strftime("%d.%m.%Y %H:%M:%S")
+
+
 def get_all_requests(owner_id=None):
+    """Возвращает список заявок со статусами на русском языке."""
     with get_connection() as connection:
         with connection.cursor() as cursor:
             query = """
-                SELECT id, title,
-                    CASE status
-                        WHEN 'new' THEN 'Новая'
-                        WHEN 'in_progress' THEN 'В работе'
-                        WHEN 'completed' THEN 'Завершена'
-                        WHEN 'cancelled' THEN 'Отменена'
-                        ELSE status
-                    END AS status_name
+                SELECT
+                    id,
+                    title,
+                    status
                 FROM repair_requests
             """
+
             if owner_id is not None:
                 query += " WHERE owner_id = %s"
-                cursor.execute(query + " ORDER BY id ASC;", (owner_id,))
+                cursor.execute(
+                    query + " ORDER BY id DESC;",
+                    (owner_id,),
+                )
             else:
-                cursor.execute(query + " ORDER BY id ASC;")
-            return cursor.fetchall()
+                cursor.execute(query + " ORDER BY id DESC;")
+
+            rows = cursor.fetchall()
+
+    return [
+        (
+            request_id,
+            title,
+            STATUS_NAMES.get(status, status),
+        )
+        for request_id, title, status in rows
+    ]
 
 
 def get_request_by_id(request_id: int, owner_id=None):
+    """Возвращает подробную информацию о заявке."""
     with get_connection() as connection:
         with connection.cursor() as cursor:
             if owner_id is None:
                 cursor.execute(
                     """
-                    SELECT id, title, description, status, created_at, updated_at
-                    FROM repair_requests WHERE id = %s;
+                    SELECT
+                        id,
+                        title,
+                        description,
+                        status,
+                        created_at,
+                        updated_at
+                    FROM repair_requests
+                    WHERE id = %s;
                     """,
                     (request_id,),
                 )
             else:
                 cursor.execute(
                     """
-                    SELECT id, title, description, status, created_at, updated_at
-                    FROM repair_requests WHERE id = %s AND owner_id = %s;
+                    SELECT
+                        id,
+                        title,
+                        description,
+                        status,
+                        created_at,
+                        updated_at
+                    FROM repair_requests
+                    WHERE id = %s
+                      AND owner_id = %s;
                     """,
                     (request_id, owner_id),
                 )
+
             request = cursor.fetchone()
 
     if request is None:
@@ -70,17 +134,29 @@ def get_request_by_id(request_id: int, owner_id=None):
         "title": request[1],
         "description": request[2],
         "status": request[3],
-        "status_name": STATUS_NAMES.get(request[3], request[3]),
-        "created_at": request[4],
-        "updated_at": request[5],
+        "status_name": STATUS_NAMES.get(
+            request[3],
+            request[3],
+        ),
+        "created_at": format_datetime(request[4]),
+        "updated_at": format_datetime(request[5]),
     }
 
 
-def update_request_status(request_id: int, new_status: str) -> bool:
-    new_status = STATUS_VALUES.get(new_status, new_status)
+def update_request_status(
+    request_id: int,
+    new_status: str,
+) -> bool:
+    """Изменяет статус заявки."""
+    new_status = STATUS_VALUES.get(
+        new_status,
+        new_status,
+    )
 
     if new_status not in STATUS_NAMES:
-        raise ValueError("Указан неизвестный статус заявки.")
+        raise ValueError(
+            "Указан неизвестный статус заявки."
+        )
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
@@ -95,12 +171,14 @@ def update_request_status(request_id: int, new_status: str) -> bool:
                 """,
                 (new_status, request_id),
             )
+
             updated_request = cursor.fetchone()
 
     return updated_request is not None
 
 
 def _sync_request_sequence(cursor):
+    """Синхронизирует последовательность идентификаторов."""
     cursor.execute(
         """
         SELECT pg_get_serial_sequence(
@@ -109,6 +187,7 @@ def _sync_request_sequence(cursor):
         );
         """
     )
+
     result = cursor.fetchone()
     sequence_name = result[0] if result else None
 
@@ -131,27 +210,41 @@ def _sync_request_sequence(cursor):
 
 
 def delete_request(request_id: int, owner_id=None) -> bool:
-    """Удаляет заявку, не перенумеровывая остальные заявки."""
+    """Удаляет заявку."""
     with get_connection() as connection:
         with connection.cursor() as cursor:
             if owner_id is None:
                 cursor.execute(
-                    "DELETE FROM repair_requests WHERE id = %s RETURNING id;",
+                    """
+                    DELETE FROM repair_requests
+                    WHERE id = %s
+                    RETURNING id;
+                    """,
                     (request_id,),
                 )
             else:
                 cursor.execute(
                     """
                     DELETE FROM repair_requests
-                    WHERE id = %s AND owner_id = %s
+                    WHERE id = %s
+                      AND owner_id = %s
                     RETURNING id;
                     """,
                     (request_id, owner_id),
                 )
-            return cursor.fetchone() is not None
+
+            deleted_request = cursor.fetchone()
+
+    return deleted_request is not None
 
 
-def create_request(title, description, photo_path=None, owner_id=None):
+def create_request(
+    title,
+    description,
+    photo_path=None,
+    owner_id=None,
+):
+    """Создаёт заявку и сохраняет фотографию, если она указана."""
     title = title.strip()
     description = description.strip()
 
@@ -178,34 +271,51 @@ def create_request(title, description, photo_path=None, owner_id=None):
             cursor.execute(
                 """
                 INSERT INTO repair_requests (
-                    title, description, photo_data, owner_id
+                    title,
+                    description,
+                    photo_data,
+                    owner_id
                 )
                 VALUES (%s, %s, %s, %s)
                 RETURNING id;
                 """,
-                (title, description, photo_data, owner_id),
+                (
+                    title,
+                    description,
+                    photo_data,
+                    owner_id,
+                ),
             )
+
             created_request_id = cursor.fetchone()[0]
 
     return created_request_id
 
 
 def get_request_photo(request_id: int, owner_id=None):
+    """Возвращает фотографию заявки в виде байтов."""
     with get_connection() as connection:
         with connection.cursor() as cursor:
             if owner_id is None:
                 cursor.execute(
-                    "SELECT photo_data FROM repair_requests WHERE id = %s;",
+                    """
+                    SELECT photo_data
+                    FROM repair_requests
+                    WHERE id = %s;
+                    """,
                     (request_id,),
                 )
             else:
                 cursor.execute(
                     """
-                    SELECT photo_data FROM repair_requests
-                    WHERE id = %s AND owner_id = %s;
+                    SELECT photo_data
+                    FROM repair_requests
+                    WHERE id = %s
+                      AND owner_id = %s;
                     """,
                     (request_id, owner_id),
                 )
+
             result = cursor.fetchone()
 
     if result is None:
@@ -222,46 +332,86 @@ def update_request(
     remove_photo: bool = False,
     owner_id=None,
 ) -> bool:
+    """Обновляет заявку, сохраняя или удаляя фотографию по запросу."""
     title = title.strip()
     description = description.strip()
 
     if not title:
         raise ValueError("Введите название заявки.")
+
     if not description:
         raise ValueError("Введите описание заявки.")
 
     photo_data = None
+
     if photo_path:
         photo_file = Path(photo_path)
+
         if not photo_file.is_file():
-            raise ValueError("Выбранный файл фотографии не найден.")
+            raise ValueError(
+                "Выбранный файл фотографии не найден."
+            )
+
         photo_data = photo_file.read_bytes()
 
-    owner_clause = " AND owner_id = %s" if owner_id is not None else ""
+    owner_clause = (
+        " AND owner_id = %s"
+        if owner_id is not None
+        else ""
+    )
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
             if remove_photo:
                 query = (
-                    "UPDATE repair_requests SET title = %s, description = %s, "
-                    "photo_data = NULL, updated_at = CURRENT_TIMESTAMP "
-                    "WHERE id = %s" + owner_clause + " RETURNING id;"
+                    "UPDATE repair_requests "
+                    "SET title = %s, description = %s, "
+                    "photo_data = NULL, "
+                    "updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = %s"
+                    + owner_clause
+                    + " RETURNING id;"
                 )
-                params = (title, description, request_id)
+
+                params = (
+                    title,
+                    description,
+                    request_id,
+                )
+
             elif photo_path:
                 query = (
-                    "UPDATE repair_requests SET title = %s, description = %s, "
-                    "photo_data = %s, updated_at = CURRENT_TIMESTAMP "
-                    "WHERE id = %s" + owner_clause + " RETURNING id;"
+                    "UPDATE repair_requests "
+                    "SET title = %s, description = %s, "
+                    "photo_data = %s, "
+                    "updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = %s"
+                    + owner_clause
+                    + " RETURNING id;"
                 )
-                params = (title, description, photo_data, request_id)
+
+                params = (
+                    title,
+                    description,
+                    photo_data,
+                    request_id,
+                )
+
             else:
                 query = (
-                    "UPDATE repair_requests SET title = %s, description = %s, "
+                    "UPDATE repair_requests "
+                    "SET title = %s, description = %s, "
                     "updated_at = CURRENT_TIMESTAMP "
-                    "WHERE id = %s" + owner_clause + " RETURNING id;"
+                    "WHERE id = %s"
+                    + owner_clause
+                    + " RETURNING id;"
                 )
-                params = (title, description, request_id)
+
+                params = (
+                    title,
+                    description,
+                    request_id,
+                )
 
             if owner_id is not None:
                 params += (owner_id,)
