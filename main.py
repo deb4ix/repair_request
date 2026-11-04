@@ -8,7 +8,6 @@ def main():
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
 
-    # Создаём таблицу аккаунтов и добавляем owner_id в repair_requests.
     ensure_auth_schema()
 
     app = AuthWindow()
