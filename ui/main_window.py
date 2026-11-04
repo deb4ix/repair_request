@@ -31,8 +31,109 @@ class MainWindow(ctk.CTkToplevel):
         self.remove_existing_photo = False
 
         self.create_widgets()
+        self.update_table_theme()
         self.show_requests()
         self.load_requests()
+
+    def update_table_theme(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+
+        if ctk.get_appearance_mode() == "Dark":
+            background = "#242424"
+            foreground = "#FFFFFF"
+            heading_background = "#333333"
+            selected_background = "#1F6AA5"
+            border_color = "#444444"
+
+            status_colors = {
+                "new": ("#183B2A", "#B7F7CC"),
+                "in_progress": ("#193653", "#BFDBFE"),
+                "completed": ("#383838", "#E5E7EB"),
+                "cancelled": ("#4A2222", "#FECACA"),
+            }
+        else:
+            background = "#FFFFFF"
+            foreground = "#000000"
+            heading_background = "#E5E5E5"
+            selected_background = "#3B8ED0"
+            border_color = "#D0D0D0"
+
+            status_colors = {
+                "new": ("#D9F2DF", "#14532D"),
+                "in_progress": ("#DCEBFA", "#1E40AF"),
+                "completed": ("#E5E7EB", "#374151"),
+                "cancelled": ("#FADBD8", "#991B1B"),
+            }
+
+        style.configure(
+            "Treeview",
+            background=background,
+            foreground=foreground,
+            fieldbackground=background,
+            rowheight=32,
+            bordercolor=border_color,
+            borderwidth=0,
+        )
+
+        style.configure(
+            "Treeview.Heading",
+            background=heading_background,
+            foreground=foreground,
+            font=("Arial", 10, "bold"),
+            relief="flat",
+        )
+
+        style.map(
+            "Treeview",
+            background=[
+                ("selected", selected_background)
+            ],
+            foreground=[
+                ("selected", "#FFFFFF")
+            ],
+        )
+
+        style.map(
+            "Treeview.Heading",
+            background=[
+                ("active", heading_background)
+            ],
+        )
+
+        # Цвета строк в зависимости от статуса заявки.
+        for tag_name, colors in status_colors.items():
+            row_background, row_foreground = colors
+            self.request_table.tag_configure(
+                tag_name,
+                background=row_background,
+                foreground=row_foreground,
+            )
+
+    @staticmethod
+    def get_status_tag(status):
+        """Возвращает тег оформления для статуса заявки."""
+        normalized_status = (status or "").strip().casefold()
+
+        status_tags = {
+            "новая": "new",
+            "new": "new",
+
+            "в работе": "in_progress",
+            "in progress": "in_progress",
+            "in_progress": "in_progress",
+
+            "завершена": "completed",
+            "завершено": "completed",
+            "completed": "completed",
+
+            "отменена": "cancelled",
+            "отменено": "cancelled",
+            "cancelled": "cancelled",
+            "canceled": "cancelled",
+        }
+
+        return status_tags.get(normalized_status, "")
 
     def create_widgets(self):
         self.sidebar = ctk.CTkFrame(self, width=220)
@@ -312,11 +413,15 @@ class MainWindow(ctk.CTkToplevel):
                 ):
                     continue
 
+                status_tag = self.get_status_tag(status)
+                tags = (status_tag,) if status_tag else ()
+
                 self.request_table.insert(
                     "",
                     "end",
                     iid=str(request_id),
                     values=(request_id, title, status),
+                    tags=tags,
                 )
 
         except Exception as error:
@@ -1086,4 +1191,6 @@ class MainWindow(ctk.CTkToplevel):
             "Светлая": "Light",
             "Тёмная": "Dark",
         }
+
         ctk.set_appearance_mode(themes[selected_theme])
+        self.update_table_theme()

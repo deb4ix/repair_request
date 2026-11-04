@@ -47,6 +47,7 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self.logout)
 
         self._auto_refresh_id = None
+        self._current_table_theme = None
 
         self.create_widgets()
         self.load_requests()
@@ -123,22 +124,12 @@ class TechnicianWindow(ctk.CTkToplevel):
         table_frame.grid_columnconfigure(0, weight=1)
         table_frame.grid_rowconfigure(0, weight=1)
 
-        style = ttk.Style()
-        style.configure(
-            "Treeview",
-            rowheight=30,
-            font=("Arial", 10),
-        )
-        style.configure(
-            "Treeview.Heading",
-            font=("Arial", 10, "bold"),
-        )
-
         self.tree = ttk.Treeview(
             table_frame,
             columns=("id", "title", "status"),
             show="headings",
             selectmode="browse",
+            style="Technician.Treeview",
         )
 
         self.tree.heading("id", text="№")
@@ -161,6 +152,9 @@ class TechnicianWindow(ctk.CTkToplevel):
         )
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scrollbar.set)
+
+        # Настраиваем цвета таблицы сразу при создании.
+        self.update_table_theme()
 
         self.tree.bind(
             "<Double-1>",
@@ -209,6 +203,102 @@ class TechnicianWindow(ctk.CTkToplevel):
         ).pack(side="right", padx=8, pady=10)
 
     # --------------------------------------------------
+    # Оформление таблицы и цвета статусов
+    # --------------------------------------------------
+
+    def update_table_theme(self):
+        """Применяет оформление Treeview под текущую тему CustomTkinter."""
+        appearance = ctk.get_appearance_mode()
+        is_dark = appearance.lower() == "dark"
+
+        if is_dark:
+            background = "#242424"
+            foreground = "#F2F2F2"
+            heading_background = "#333333"
+            heading_foreground = "#FFFFFF"
+            selected_background = "#1F538D"
+
+            status_colors = {
+                "new": ("#183B2A", "#B7F7CC"),
+                "in_progress": ("#193653", "#BFDBFE"),
+                "completed": ("#383838", "#E5E7EB"),
+                "cancelled": ("#4A2222", "#FECACA"),
+            }
+        else:
+            background = "#FFFFFF"
+            foreground = "#202020"
+            heading_background = "#E5E5E5"
+            heading_foreground = "#202020"
+            selected_background = "#A9CFF5"
+
+            status_colors = {
+                "new": ("#D9F2DF", "#14532D"),
+                "in_progress": ("#DCEBFA", "#1E40AF"),
+                "completed": ("#E5E7EB", "#374151"),
+                "cancelled": ("#FADBD8", "#991B1B"),
+            }
+
+        style = ttk.Style(self)
+        # Тема clam позволяет корректно задавать фон и цвета текста.
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+
+        style.configure(
+            "Technician.Treeview",
+            background=background,
+            foreground=foreground,
+            fieldbackground=background,
+            rowheight=34,
+            font=("Arial", 10),
+            borderwidth=0,
+        )
+        style.configure(
+            "Technician.Treeview.Heading",
+            background=heading_background,
+            foreground=heading_foreground,
+            font=("Arial", 10, "bold"),
+            relief="flat",
+            padding=(8, 8),
+        )
+        style.map(
+            "Technician.Treeview",
+            background=[("selected", selected_background)],
+            foreground=[("selected", "#FFFFFF" if is_dark else "#202020")],
+        )
+        style.map(
+            "Technician.Treeview.Heading",
+            background=[("active", heading_background)],
+            foreground=[("active", heading_foreground)],
+        )
+
+        # Цветные строки для каждого статуса.
+        for status, (row_background, row_foreground) in status_colors.items():
+            self.tree.tag_configure(
+                status,
+                background=row_background,
+                foreground=row_foreground,
+            )
+
+        self._current_table_theme = appearance
+
+    @staticmethod
+    def get_status_tag(status):
+        """Преобразует статус из БД или интерфейса в тег таблицы."""
+        status_tags = {
+            "new": "new",
+            "Новая": "new",
+            "in_progress": "in_progress",
+            "В работе": "in_progress",
+            "completed": "completed",
+            "Завершена": "completed",
+            "cancelled": "cancelled",
+            "Отменена": "cancelled",
+        }
+        return status_tags.get(status, "")
+
+    # --------------------------------------------------
     # Выход из аккаунта
     # --------------------------------------------------
 
@@ -232,6 +322,12 @@ class TechnicianWindow(ctk.CTkToplevel):
 
     def load_requests(self, show_errors=True):
         try:
+            # Если пользователь переключил тему в другом окне,
+            # обновляем оформление таблицы и здесь.
+            current_theme = ctk.get_appearance_mode()
+            if current_theme != self._current_table_theme:
+                self.update_table_theme()
+
             requests = get_all_requests()
 
             search_text = self.search_entry.get().strip().lower()
@@ -252,11 +348,14 @@ class TechnicianWindow(ctk.CTkToplevel):
                 ):
                     continue
 
+                status_tag = self.get_status_tag(status)
+
                 self.tree.insert(
                     "",
                     "end",
                     iid=str(request_id),
                     values=(request_id, title, status),
+                    tags=(status_tag,) if status_tag else (),
                 )
 
         except Exception as error:
@@ -340,9 +439,7 @@ class TechnicianWindow(ctk.CTkToplevel):
                 sticky="w",
             )
 
-            content_frame = ctk.CTkScrollableFrame(
-                details_window
-            )
+            content_frame = ctk.CTkScrollableFrame(details_window)
             content_frame.grid(
                 row=1, column=0,
                 padx=20, pady=10,
@@ -478,7 +575,6 @@ class TechnicianWindow(ctk.CTkToplevel):
             photo_window.minsize(400, 300)
             photo_window.transient(self)
 
-            # Масштабируем изображение под окно, сохраняя пропорции.
             image.thumbnail((900, 650))
 
             photo_image = ctk.CTkImage(
@@ -508,7 +604,7 @@ class TechnicianWindow(ctk.CTkToplevel):
             )
 
     # --------------------------------------------------
-    # Изменение статуса
+    # Изменение статуса заявки
     # --------------------------------------------------
 
     def change_request_status(self):
@@ -547,14 +643,19 @@ class TechnicianWindow(ctk.CTkToplevel):
                 text="Выберите новый статус:",
             ).pack(padx=20, pady=5)
 
+            available_statuses = [
+                "Новая",
+                "В работе",
+                "Завершена",
+                "Отменена",
+            ]
+
+            if request["status"] == "in_progress":
+                available_statuses.remove("Новая")
+
             status_menu = ctk.CTkOptionMenu(
                 status_window,
-                values=[
-                    "Новая",
-                    "В работе",
-                    "Завершена",
-                    "Отменена",
-                ],
+                values=available_statuses,
             )
             status_menu.set(request["status_name"])
             status_menu.pack(padx=20, pady=10)

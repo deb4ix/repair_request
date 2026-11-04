@@ -147,7 +147,8 @@ def update_request_status(
     request_id: int,
     new_status: str,
 ) -> bool:
-    """Изменяет статус заявки."""
+    """Изменяет статус заявки с проверкой допустимости перехода."""
+
     new_status = STATUS_VALUES.get(
         new_status,
         new_status,
@@ -160,6 +161,35 @@ def update_request_status(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
+
+            # Блокируем заявку на время проверки и изменения.
+            cursor.execute(
+                """
+                SELECT status
+                FROM repair_requests
+                WHERE id = %s
+                FOR UPDATE;
+                """,
+                (request_id,),
+            )
+
+            request = cursor.fetchone()
+
+            if request is None:
+                return False
+
+            current_status = request[0]
+
+            # Нельзя вернуть заявку из работы в новую.
+            if (
+                current_status == "in_progress"
+                and new_status == "new"
+            ):
+                raise ValueError(
+                    "Нельзя вернуть заявку из статуса "
+                    "«В работе» в статус «Новая»."
+                )
+
             cursor.execute(
                 """
                 UPDATE repair_requests
