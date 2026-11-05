@@ -126,7 +126,7 @@ class TechnicianWindow(ctk.CTkToplevel):
 
         self.tree = ttk.Treeview(
             table_frame,
-            columns=("id", "title", "status"),
+            columns=("id", "title", "status", "author"),
             show="headings",
             selectmode="browse",
             style="Technician.Treeview",
@@ -135,10 +135,12 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.tree.heading("id", text="№")
         self.tree.heading("title", text="Название заявки")
         self.tree.heading("status", text="Статус")
+        self.tree.heading("author", text="Отправитель")
 
         self.tree.column("id", width=70, anchor="center")
         self.tree.column("title", width=600, anchor="w")
-        self.tree.column("status", width=180, anchor="center")
+        self.tree.column("status", width=150, anchor="center")
+        self.tree.column("author", width=190, anchor="center")
 
         self.tree.grid(
             row=0, column=0,
@@ -193,6 +195,12 @@ class TechnicianWindow(ctk.CTkToplevel):
             hover_color="#8b0000",
             command=self.delete_selected_request,
         ).pack(side="left", padx=8, pady=10)
+
+        ctk.CTkButton(
+            buttons_frame,
+            text="Настройки",
+            command=self.show_settings,
+        ).pack(side="right", padx=8, pady=10)
 
         ctk.CTkButton(
             buttons_frame,
@@ -337,7 +345,7 @@ class TechnicianWindow(ctk.CTkToplevel):
                 self.tree.delete(item)
 
             for request in requests:
-                request_id, title, status = request
+                request_id, title, status, author = request
 
                 if search_text and search_text not in title.lower():
                     continue
@@ -354,7 +362,7 @@ class TechnicianWindow(ctk.CTkToplevel):
                     "",
                     "end",
                     iid=str(request_id),
-                    values=(request_id, title, status),
+                    values=(request_id, title, status, author),
                     tags=(status_tag,) if status_tag else (),
                 )
 
@@ -369,6 +377,46 @@ class TechnicianWindow(ctk.CTkToplevel):
     # --------------------------------------------------
     # Автоматическое обновление
     # --------------------------------------------------
+
+    def show_settings(self):
+        """Открывает настройки внешнего вида рабочего места ремонтника."""
+        settings_window = ctk.CTkToplevel(self)
+        settings_window.title("Настройки")
+        settings_window.geometry("380x230")
+        settings_window.resizable(False, False)
+        settings_window.transient(self)
+        settings_window.grab_set()
+
+        ctk.CTkLabel(
+            settings_window,
+            text="Настройки",
+            font=ctk.CTkFont(size=22, weight="bold"),
+        ).pack(anchor="w", padx=24, pady=(24, 12))
+
+        ctk.CTkLabel(
+            settings_window,
+            text="Цветовая тема приложения",
+        ).pack(anchor="w", padx=24, pady=(4, 8))
+
+        theme_selector = ctk.CTkSegmentedButton(
+            settings_window,
+            values=["Светлая", "Тёмная"],
+            command=lambda value: self.change_theme(value),
+        )
+        theme_selector.pack(anchor="w", padx=24, pady=8)
+
+        theme_selector.set(
+            "Тёмная" if ctk.get_appearance_mode() == "Dark"
+            else "Светлая"
+        )
+
+    def change_theme(self, selected_theme):
+        themes = {
+            "Светлая": "Light",
+            "Тёмная": "Dark",
+        }
+        ctk.set_appearance_mode(themes[selected_theme])
+        self.update_table_theme()
 
     def auto_refresh(self):
         if not self.winfo_exists() or not self.winfo_viewable():
@@ -458,6 +506,11 @@ class TechnicianWindow(ctk.CTkToplevel):
                 text=request["title"],
                 wraplength=620,
                 justify="left",
+            ).pack(anchor="w", pady=(0, 12))
+
+            ctk.CTkLabel(
+                content_frame,
+                text=f"Отправитель: {request.get('owner_username', 'Неизвестный пользователь')}",
             ).pack(anchor="w", pady=(0, 12))
 
             ctk.CTkLabel(

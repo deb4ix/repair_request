@@ -28,6 +28,10 @@ class AuthWindow(ctk.CTk):
 
         self.create_widgets()
 
+        # Скрываем окно входа до проверки сохранённой авторизации,
+        # чтобы при действующей сессии форма регистрации не мелькала.
+        self.withdraw()
+
         # При запуске проверяем сохранённый аккаунт.
         self.after(100, self.check_saved_account)
 
@@ -235,6 +239,8 @@ class AuthWindow(ctk.CTk):
             )
 
             if not username:
+                self.deiconify()
+                self.lift()
                 return
 
             password = keyring.get_password(
@@ -244,6 +250,8 @@ class AuthWindow(ctk.CTk):
 
             if not password:
                 self.delete_saved_account()
+                self.deiconify()
+                self.lift()
                 return
 
             # Проверяем сохранённые данные через PostgreSQL.
@@ -251,6 +259,8 @@ class AuthWindow(ctk.CTk):
 
             if user is None:
                 self.delete_saved_account()
+                self.deiconify()
+                self.lift()
                 return
 
             # Аккаунт действителен — открываем нужную сторону.
@@ -259,6 +269,8 @@ class AuthWindow(ctk.CTk):
         except Exception as error:
             # Если база недоступна, не удаляем сохранённые данные.
             # Пользователь сможет попробовать войти вручную.
+            self.deiconify()
+            self.lift()
             messagebox.showwarning(
                 "Не удалось выполнить автоматический вход",
                 (

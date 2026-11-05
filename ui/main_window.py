@@ -218,7 +218,7 @@ class MainWindow(ctk.CTkToplevel):
 
         self.page_description = ctk.CTkLabel(
             self.content,
-            text="Просмотр и управление заявками",
+            text="Просмотр всех заявок и управление собственными",
         )
         self.page_description.pack(
             anchor="w",
@@ -321,7 +321,7 @@ class MainWindow(ctk.CTkToplevel):
 
         self.request_table = ttk.Treeview(
             self.requests_frame,
-            columns=("id", "title", "status"),
+            columns=("id", "title", "status", "author"),
             show="headings",
             selectmode="browse",
         )
@@ -332,6 +332,7 @@ class MainWindow(ctk.CTkToplevel):
             text="Название заявки",
         )
         self.request_table.heading("status", text="Статус")
+        self.request_table.heading("author", text="Отправитель")
 
         self.request_table.column(
             "id",
@@ -347,6 +348,11 @@ class MainWindow(ctk.CTkToplevel):
         self.request_table.column(
             "status",
             width=150,
+            anchor="center",
+        )
+        self.request_table.column(
+            "author",
+            width=180,
             anchor="center",
         )
 
@@ -367,7 +373,7 @@ class MainWindow(ctk.CTkToplevel):
             text="Заявки на ремонт"
         )
         self.page_description.configure(
-            text="Просмотр и управление заявками"
+            text="Просмотр всех заявок и управление собственными"
         )
 
         if hasattr(self, "settings_frame"):
@@ -383,9 +389,8 @@ class MainWindow(ctk.CTkToplevel):
 
     def load_requests(self):
         try:
-            requests = get_all_requests(
-                self.current_user["id"]
-            )
+            # Пользователь видит общий список заявок и их авторов.
+            requests = get_all_requests()
 
             search_text = (
                 self.search_entry.get().strip().casefold()
@@ -397,9 +402,10 @@ class MainWindow(ctk.CTkToplevel):
             for item in self.request_table.get_children():
                 self.request_table.delete(item)
 
-            for request_id, title, status in requests:
+            for request_id, title, status, author in requests:
                 title = title or ""
                 status = status or ""
+                author = author or "Неизвестный пользователь"
 
                 if (
                     search_text
@@ -420,7 +426,7 @@ class MainWindow(ctk.CTkToplevel):
                     "",
                     "end",
                     iid=str(request_id),
-                    values=(request_id, title, status),
+                    values=(request_id, title, status, author),
                     tags=tags,
                 )
 
@@ -451,10 +457,7 @@ class MainWindow(ctk.CTkToplevel):
             return
 
         try:
-            request = get_request_by_id(
-                request_id,
-                self.current_user["id"],
-            )
+            request = get_request_by_id(request_id)
 
             if request is None:
                 messagebox.showwarning(
@@ -511,6 +514,7 @@ class MainWindow(ctk.CTkToplevel):
 
             fields = [
                 ("Название", request["title"]),
+                ("Отправитель", request.get("owner_username", "Неизвестный пользователь")),
                 ("Описание", request["description"]),
                 ("Статус", request["status_name"]),
                 ("Создана", request["created_at"]),
@@ -562,10 +566,7 @@ class MainWindow(ctk.CTkToplevel):
 
     def show_request_photo(self, request_id):
         try:
-            photo_data = get_request_photo(
-                request_id,
-                self.current_user["id"],
-            )
+            photo_data = get_request_photo(request_id)
 
             if not photo_data:
                 messagebox.showinfo(
@@ -679,11 +680,10 @@ class MainWindow(ctk.CTkToplevel):
 
             if request is None:
                 messagebox.showwarning(
-                    "Заявка не найдена",
-                    "Возможно, заявка уже была удалена.",
+                    "Нет доступа",
+                    "Вы можете редактировать только собственные заявки.",
                     parent=self,
                 )
-                self.load_requests()
                 return
 
             self.editing_request_id = request_id

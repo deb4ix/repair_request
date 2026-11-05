@@ -61,20 +61,23 @@ def get_all_requests(owner_id=None):
         with connection.cursor() as cursor:
             query = """
                 SELECT
-                    id,
-                    title,
-                    status
-                FROM repair_requests
+                    rr.id,
+                    rr.title,
+                    rr.status,
+                    COALESCE(au.username, 'Неизвестный пользователь')
+                FROM repair_requests AS rr
+                LEFT JOIN app_users AS au
+                    ON au.id = rr.owner_id
             """
 
             if owner_id is not None:
-                query += " WHERE owner_id = %s"
+                query += " WHERE rr.owner_id = %s"
                 cursor.execute(
-                    query + " ORDER BY id DESC;",
+                    query + " ORDER BY rr.id ASC;",
                     (owner_id,),
                 )
             else:
-                cursor.execute(query + " ORDER BY id DESC;")
+                cursor.execute(query + " ORDER BY rr.id ASC;")
 
             rows = cursor.fetchall()
 
@@ -83,8 +86,9 @@ def get_all_requests(owner_id=None):
             request_id,
             title,
             STATUS_NAMES.get(status, status),
+            owner_username,
         )
-        for request_id, title, status in rows
+        for request_id, title, status, owner_username in rows
     ]
 
 
@@ -101,7 +105,13 @@ def get_request_by_id(request_id: int, owner_id=None):
                         description,
                         status,
                         created_at,
-                        updated_at
+                        updated_at,
+                        owner_id,
+                        COALESCE(
+                            (SELECT username FROM app_users
+                             WHERE app_users.id = repair_requests.owner_id),
+                            'Неизвестный пользователь'
+                        )
                     FROM repair_requests
                     WHERE id = %s;
                     """,
@@ -116,7 +126,13 @@ def get_request_by_id(request_id: int, owner_id=None):
                         description,
                         status,
                         created_at,
-                        updated_at
+                        updated_at,
+                        owner_id,
+                        COALESCE(
+                            (SELECT username FROM app_users
+                             WHERE app_users.id = repair_requests.owner_id),
+                            'Неизвестный пользователь'
+                        )
                     FROM repair_requests
                     WHERE id = %s
                       AND owner_id = %s;
@@ -140,6 +156,8 @@ def get_request_by_id(request_id: int, owner_id=None):
         ),
         "created_at": format_datetime(request[4]),
         "updated_at": format_datetime(request[5]),
+        "owner_id": request[6],
+        "owner_username": request[7],
     }
 
 
