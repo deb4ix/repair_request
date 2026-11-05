@@ -149,11 +149,13 @@ def update_request_status(
 ) -> bool:
     """Изменяет статус заявки с проверкой допустимости перехода."""
 
+    # Преобразуем русское название статуса в системное.
     new_status = STATUS_VALUES.get(
         new_status,
         new_status,
     )
 
+    # Проверяем существование такого статуса.
     if new_status not in STATUS_NAMES:
         raise ValueError(
             "Указан неизвестный статус заявки."
@@ -161,8 +163,6 @@ def update_request_status(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-
-            # Блокируем заявку на время проверки и изменения.
             cursor.execute(
                 """
                 SELECT status
@@ -180,14 +180,13 @@ def update_request_status(
 
             current_status = request[0]
 
-            # Нельзя вернуть заявку из работы в новую.
             if (
-                current_status == "in_progress"
+                current_status != "new"
                 and new_status == "new"
             ):
                 raise ValueError(
-                    "Нельзя вернуть заявку из статуса "
-                    "«В работе» в статус «Новая»."
+                    "Нельзя вернуть заявку в статус "
+                    "«Новая» после изменения её первоначального статуса."
                 )
 
             cursor.execute(

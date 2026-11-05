@@ -603,10 +603,6 @@ class TechnicianWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
-    # --------------------------------------------------
-    # Изменение статуса заявки
-    # --------------------------------------------------
-
     def change_request_status(self):
         request_id = self.get_selected_request_id()
 
@@ -650,7 +646,7 @@ class TechnicianWindow(ctk.CTkToplevel):
                 "Отменена",
             ]
 
-            if request["status"] == "in_progress":
+            if request["status"] != "new":
                 available_statuses.remove("Новая")
 
             status_menu = ctk.CTkOptionMenu(
