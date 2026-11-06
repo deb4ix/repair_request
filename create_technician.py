@@ -1,24 +1,37 @@
 from getpass import getpass
 
-import customtkinter as ctk  # ensures dependency is already part of the project
-
-from services.auth_service import create_technician, ensure_auth_schema
+from services.auth_service import (
+    create_technician,
+    ensure_auth_schema,
+)
 
 
 def main():
-    ensure_auth_schema()
-    print("Создание аккаунта работника")
-    username = input("Логин работника: ").strip()
-    password = getpass("Пароль (минимум 8 символов): ")
-    confirm = getpass("Повторите пароль: ")
-
-    if password != confirm:
-        print("Пароли не совпадают.")
-        return
+    print("=" * 45)
+    print("СОЗДАНИЕ АККАУНТА РЕМОНТНИКА")
+    print("=" * 45)
 
     try:
+        ensure_auth_schema()
+
+        username = input("Логин ремонтника: ").strip()
+        password = getpass("Пароль (минимум 8 символов): ")
+        confirm = getpass("Повторите пароль: ")
+
+        if password != confirm:
+            print("Ошибка: пароли не совпадают.")
+            return
+
         user = create_technician(username, password)
-        print(f"Аккаунт работника {user['username']} создан.")
+
+        print()
+        print("Аккаунт ремонтника успешно создан.")
+        print(f"Логин: {user['username']}")
+        print(f"Роль: {user['role']}")
+
+    except ValueError as error:
+        print(f"Ошибка: {error}")
+
     except Exception as error:
         print(f"Не удалось создать аккаунт: {error}")
 

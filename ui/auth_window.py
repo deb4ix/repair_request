@@ -5,8 +5,12 @@ from tkinter import messagebox
 
 from services.auth_service import (
     authenticate_user,
-    ensure_auth_schema,
     register_user,
+    ensure_auth_schema,
+)
+
+from ui.technician_registration_window import (
+    TechnicianRegistrationWindow,
 )
 
 
@@ -20,25 +24,21 @@ class AuthWindow(ctk.CTk):
         super().__init__()
 
         self.title("Учёт заявок на ремонт — вход")
-        self.geometry("430x640")
+        self.geometry("430x590")
         self.resizable(False, False)
 
         self.active_window = None
+        self.technician_registration_window = None
         self.remember_var = ctk.BooleanVar(value=True)
 
         self.create_widgets()
 
-        # Скрываем окно входа до проверки сохранённой авторизации,
-        # чтобы при действующей сессии форма регистрации не мелькала.
         self.withdraw()
-
-        # При запуске проверяем сохранённый аккаунт.
         self.after(100, self.check_saved_account)
 
         self.protocol("WM_DELETE_WINDOW", self.close_app)
 
     def create_widgets(self):
-
         ctk.CTkLabel(
             self,
             text="Учёт заявок на ремонт",
@@ -47,7 +47,7 @@ class AuthWindow(ctk.CTk):
 
         ctk.CTkLabel(
             self,
-            text="Войдите в аккаунт или зарегистрируйтесь",
+            text="Войдите в аккаунт или создайте новый",
             wraplength=350,
         ).pack(padx=25, pady=(0, 25))
 
@@ -56,11 +56,7 @@ class AuthWindow(ctk.CTk):
             placeholder_text="Логин",
             height=40,
         )
-        self.username_entry.pack(
-            fill="x",
-            padx=35,
-            pady=8,
-        )
+        self.username_entry.pack(fill="x", padx=35, pady=8)
 
         self.password_entry = ctk.CTkEntry(
             self,
@@ -68,18 +64,13 @@ class AuthWindow(ctk.CTk):
             show="*",
             height=40,
         )
-        self.password_entry.pack(
-            fill="x",
-            padx=35,
-            pady=8,
-        )
+        self.password_entry.pack(fill="x", padx=35, pady=8)
 
         self.password_entry.bind(
             "<Return>",
             lambda event: self.login(),
         )
 
-        # Запоминание аккаунта.
         self.remember_checkbox = ctk.CTkCheckBox(
             self,
             text="Запомнить меня",
@@ -91,78 +82,52 @@ class AuthWindow(ctk.CTk):
             pady=(8, 12),
         )
 
-        ctk.CTkLabel(
-            self,
-            text="Тип аккаунта",
-        ).pack(
-            padx=35,
-            pady=(8, 2),
-            anchor="w",
-        )
-
-        self.role_selector = ctk.CTkOptionMenu(
-            self,
-            values=["Пользователь", "Ремонтник"],
-            height=36,
-        )
-        self.role_selector.set("Пользователь")
-        self.role_selector.pack(
-            fill="x",
-            padx=35,
-            pady=(0, 8),
-        )
-
         ctk.CTkButton(
             self,
             text="Войти",
-            height=40,
+            height=42,
             command=self.login,
-        ).pack(
-            fill="x",
-            padx=35,
-            pady=(18, 8),
-        )
+        ).pack(fill="x", padx=35, pady=(15, 8))
 
         ctk.CTkButton(
             self,
-            text="Зарегистрироваться",
-            height=40,
+            text="Регистрация пользователя",
+            height=42,
             fg_color="#444444",
             hover_color="#303030",
-            command=self.register,
-        ).pack(
-            fill="x",
-            padx=35,
-            pady=8,
-        )
+            command=self.register_user,
+        ).pack(fill="x", padx=35, pady=8)
+
+        ctk.CTkButton(
+            self,
+            text="Регистрация ремонтника",
+            height=42,
+            fg_color="#8B3434",
+            hover_color="#702929",
+            command=self.open_technician_registration,
+        ).pack(fill="x", padx=35, pady=8)
 
         ctk.CTkLabel(
             self,
             text=(
-                "Выберите тип аккаунта перед регистрацией. "
-                "Ремонтник сможет просматривать все заявки "
-                "и менять их статусы."
+                "Ремонтник регистрируется отдельно "
+                "с помощью кода приглашения."
             ),
             wraplength=340,
             text_color="gray",
-        ).pack(
-            padx=30,
-            pady=(12, 0),
-        )
+        ).pack(padx=30, pady=(12, 0))
 
     # ==========================================
     # СОХРАНЕНИЕ АККАУНТА
     # ==========================================
 
     def save_account(self, username, password):
-
         try:
             old_username = keyring.get_password(
                 KEYRING_SERVICE,
                 SAVED_USERNAME_KEY,
             )
 
-            # Удаляем старый пароль, если логин изменился.
             if old_username and old_username != username:
                 try:
                     keyring.delete_password(
@@ -195,7 +160,6 @@ class AuthWindow(ctk.CTk):
             )
 
     def delete_saved_account(self):
-
         try:
             username = keyring.get_password(
                 KEYRING_SERVICE,
@@ -231,7 +195,6 @@ class AuthWindow(ctk.CTk):
     # ==========================================
 
     def check_saved_account(self):
-
         try:
             username = keyring.get_password(
                 KEYRING_SERVICE,
@@ -254,7 +217,6 @@ class AuthWindow(ctk.CTk):
                 self.lift()
                 return
 
-            # Проверяем сохранённые данные через PostgreSQL.
             user = authenticate_user(username, password)
 
             if user is None:
@@ -263,14 +225,12 @@ class AuthWindow(ctk.CTk):
                 self.lift()
                 return
 
-            # Аккаунт действителен — открываем нужную сторону.
             self.open_user_window(user)
 
         except Exception as error:
-            # Если база недоступна, не удаляем сохранённые данные.
-            # Пользователь сможет попробовать войти вручную.
             self.deiconify()
             self.lift()
+
             messagebox.showwarning(
                 "Не удалось выполнить автоматический вход",
                 (
@@ -286,33 +246,22 @@ class AuthWindow(ctk.CTk):
     # ==========================================
 
     def open_user_window(self, user):
-
         self.withdraw()
 
         try:
-
             if user["role"] == "technician":
-
                 from ui.technician_window import TechnicianWindow
 
-                app = TechnicianWindow(
-                    user,
-                    master=self,
-                )
+                app = TechnicianWindow(user, master=self)
 
             else:
-
                 from ui.main_window import MainWindow
 
-                app = MainWindow(
-                    user,
-                    master=self,
-                )
+                app = MainWindow(user, master=self)
 
             self.active_window = app
 
         except Exception as error:
-
             self.deiconify()
 
             messagebox.showerror(
@@ -322,11 +271,10 @@ class AuthWindow(ctk.CTk):
             )
 
     # ==========================================
-    # ОБЫЧНЫЙ ВХОД
+    # ВХОД
     # ==========================================
 
     def login(self):
-
         username = self.username_entry.get().strip()
         password = self.password_entry.get()
 
@@ -357,7 +305,6 @@ class AuthWindow(ctk.CTk):
             )
             return
 
-        # Сохраняем аккаунт только после успешного входа.
         if self.remember_var.get():
             self.save_account(username, password)
         else:
@@ -366,36 +313,23 @@ class AuthWindow(ctk.CTk):
         self.open_user_window(user)
 
     # ==========================================
-    # РЕГИСТРАЦИЯ
+    # РЕГИСТРАЦИЯ ПОЛЬЗОВАТЕЛЯ
     # ==========================================
 
-    def register(self):
-
+    def register_user(self):
         username = self.username_entry.get().strip()
         password = self.password_entry.get()
 
         if not username or not password:
             messagebox.showwarning(
                 "Не заполнены поля",
-                "Введите логин и пароль для регистрации.",
+                "Введите логин и пароль.",
                 parent=self,
             )
             return
 
-        selected_role = self.role_selector.get()
-
-        role = (
-            "technician"
-            if selected_role == "Ремонтник"
-            else "user"
-        )
-
         try:
-            user = register_user(
-                username,
-                password,
-                role,
-            )
+            user = register_user(username, password)
 
         except ValueError as error:
             messagebox.showwarning(
@@ -416,10 +350,9 @@ class AuthWindow(ctk.CTk):
         messagebox.showinfo(
             "Регистрация завершена",
             (
-                "Аккаунт ремонтника создан."
-                if user["role"] == "technician"
-                else "Аккаунт пользователя создан."
-            ) + "\nТеперь можно войти.",
+                f"Аккаунт пользователя «{user['username']}» создан.\n"
+                "Теперь можно войти."
+            ),
             parent=self,
         )
 
@@ -430,24 +363,37 @@ class AuthWindow(ctk.CTk):
         self.password_entry.focus_set()
 
     # ==========================================
-    # ЗАКРЫТИЕ ПРОГРАММЫ
+    # РЕГИСТРАЦИЯ РЕМОНТНИКА
+    # ==========================================
+
+    def open_technician_registration(self):
+        if (
+            self.technician_registration_window is not None
+            and self.technician_registration_window.winfo_exists()
+        ):
+            self.technician_registration_window.focus()
+            return
+
+        self.technician_registration_window = (
+            TechnicianRegistrationWindow(self)
+        )
+
+    # ==========================================
+    # ЗАКРЫТИЕ
     # ==========================================
 
     def close_app(self):
-
         try:
             if self.active_window is not None:
                 try:
                     self.active_window.destroy()
                 except Exception:
                     pass
-
         finally:
             self.destroy()
 
 
 def main():
-
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("blue")
 
