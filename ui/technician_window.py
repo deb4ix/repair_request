@@ -1,5 +1,6 @@
 
 import io
+from pathlib import Path
 from datetime import datetime
 
 import customtkinter as ctk
@@ -72,6 +73,44 @@ class TechnicianWindow(ctk.CTkToplevel):
         )
 
     # --------------------------------------------------
+    # Логотип приложения
+    # --------------------------------------------------
+
+    def load_logo(self):
+        project_root = Path(__file__).resolve().parent.parent
+        logo_path = project_root / "assets" / "logo.png"
+
+        if not logo_path.exists():
+            messagebox.showwarning(
+                "Логотип не найден",
+                f"Не удалось найти файл:\n{logo_path}",
+                parent=self,
+            )
+            return
+
+        image = Image.open(logo_path).convert("RGBA")
+        image.thumbnail((65, 65), Image.Resampling.LANCZOS)
+
+        self.logo_image = ctk.CTkImage(
+            light_image=image,
+            dark_image=image,
+            size=image.size,
+        )
+
+        self.logo_label = ctk.CTkLabel(
+            self,
+            text="",
+            image=self.logo_image,
+        )
+        self.logo_label.grid(
+            row=0,
+            column=0,
+            padx=20,
+            pady=(15, 0),
+            sticky="w",
+        )
+
+    # --------------------------------------------------
     # Категории
     # --------------------------------------------------
 
@@ -100,14 +139,17 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        ctk.CTkLabel(
+        self.load_logo()
+
+        self.page_title = ctk.CTkLabel(
             self,
             text="Заявки на ремонт",
             font=ctk.CTkFont(size=24, weight="bold"),
-        ).grid(
+        )
+        self.page_title.grid(
             row=0,
             column=0,
-            padx=20,
+            padx=100,
             pady=(20, 10),
             sticky="w",
         )
@@ -422,6 +464,18 @@ class TechnicianWindow(ctk.CTkToplevel):
             )
             selected_category = self.category_filter.get()
 
+            status_codes = {
+                "новая": "new",
+                "в работе": "in_progress",
+                "завершена": "completed",
+                "отменена": "cancelled",
+            }
+
+            normalized_status = status_codes.get(
+                selected_status,
+                selected_status,
+            )
+
             for item in self.tree.get_children():
                 self.tree.delete(item)
 
@@ -449,7 +503,7 @@ class TechnicianWindow(ctk.CTkToplevel):
 
                 if (
                     selected_status != "все статусы"
-                    and status.casefold() != selected_status
+                    and status.casefold() != normalized_status
                 ):
                     continue
 

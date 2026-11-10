@@ -60,6 +60,41 @@ class MainWindow(ctk.CTkToplevel):
         self.load_requests()
 
     # --------------------------------------------------
+    # Логотип приложения
+    # --------------------------------------------------
+
+    def load_logo(self):
+        project_root = Path(__file__).resolve().parent.parent
+        logo_path = project_root / "assets" / "logo.png"
+
+        if not logo_path.exists():
+            messagebox.showwarning(
+                "Логотип не найден",
+                f"Не удалось найти файл:\n{logo_path}",
+                parent=self,
+            )
+            return
+
+        image = Image.open(logo_path).convert("RGBA")
+        image.thumbnail((65, 65), Image.Resampling.LANCZOS)
+
+        self.logo_image = ctk.CTkImage(
+            light_image=image,
+            dark_image=image,
+            size=image.size,
+        )
+
+        self.logo_label = ctk.CTkLabel(
+            self.sidebar,
+            text="",
+            image=self.logo_image,
+        )
+        self.logo_label.pack(
+            padx=15,
+            pady=(20, 5),
+        )
+
+    # --------------------------------------------------
     # Категории
     # --------------------------------------------------
 
@@ -214,13 +249,15 @@ class MainWindow(ctk.CTkToplevel):
             expand=True,
         )
 
+        self.load_logo()
+
         self.sidebar_title = ctk.CTkLabel(
             self.sidebar,
             text="Учёт заявок на ремонт",
             font=("Arial", 18, "bold"),
             wraplength=180,
         )
-        self.sidebar_title.pack(padx=15, pady=(25, 30))
+        self.sidebar_title.pack(padx=15, pady=(5, 30))
 
         self.requests_button = ctk.CTkButton(
             self.sidebar,
@@ -460,7 +497,6 @@ class MainWindow(ctk.CTkToplevel):
                 owner_id=self.current_user["id"]
             )
 
-            # Справочник категорий нужен также для фильтра.
             self.update_category_filter()
 
             search_text = (
@@ -496,9 +532,21 @@ class MainWindow(ctk.CTkToplevel):
                 ):
                     continue
 
+                status_codes = {
+                    "новая": "new",
+                    "в работе": "in_progress",
+                    "завершена": "completed",
+                    "отменена": "cancelled",
+                }
+
+                normalized_status = status_codes.get(
+                    selected_status,
+                    selected_status,
+                )
+
                 if (
                     selected_status != "все статусы"
-                    and status.casefold() != selected_status
+                    and status.casefold() != normalized_status
                 ):
                     continue
 
