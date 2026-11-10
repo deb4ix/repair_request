@@ -1,3 +1,4 @@
+
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -19,16 +20,46 @@ STATUS_VALUES = {
     "Отменена": "cancelled",
 }
 
+PRIORITY_NAMES = {
+    "low": "Низкий",
+    "normal": "Обычный",
+    "high": "Высокий",
+    "critical": "Критический",
+}
+
+PRIORITY_VALUES = {
+    "Низкий": "low",
+    "Обычный": "normal",
+    "Высокий": "high",
+    "Критический": "critical",
+}
+
+
+def _normalize_priority(priority):
+    priority = PRIORITY_VALUES.get(priority, priority)
+
+    if priority not in PRIORITY_NAMES:
+        raise ValueError("Указан неизвестный приоритет заявки.")
+
+    return priority
+
+
+def _normalize_category_id(category_id):
+    if category_id in (None, ""):
+        return None
+
+    try:
+        category_id = int(category_id)
+    except (TypeError, ValueError):
+        raise ValueError("Выберите корректную категорию заявки.")
+
+    if category_id <= 0:
+        raise ValueError("Выберите корректную категорию заявки.")
+
+    return category_id
+
 
 def format_datetime(value, timezone_name=None):
-    """
-    Преобразует дату из базы в локальное время пользователя.
-
-    Если часовой пояс не передан, используется часовой пояс
-    операционной системы, на которой запущена программа.
-
-    Возвращает дату без обозначений часового пояса.
-    """
     if value is None:
         return "Не указано"
 
@@ -39,7 +70,6 @@ def format_datetime(value, timezone_name=None):
             return value
 
     if value.tzinfo is None:
-        # Если дата без часового пояса, считаем её временем UTC.
         value = value.replace(tzinfo=ZoneInfo("UTC"))
 
     if timezone_name:
@@ -50,13 +80,39 @@ def format_datetime(value, timezone_name=None):
     else:
         local_timezone = datetime.now().astimezone().tzinfo
 
-    local_datetime = value.astimezone(local_timezone)
+    return value.astimezone(local_timezone).strftime(
+        "%d.%m.%Y %H:%M:%S"
+    )
 
-    return local_datetime.strftime("%d.%m.%Y %H:%M:%S")
+
+def get_categories():
+    """Возвращает список категорий в формате (id, название)."""
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, name
+                FROM request_categories
+                ORDER BY id ASC;
+                """
+            )
+            return cursor.fetchall()
 
 
 def get_all_requests(owner_id=None):
-    """Возвращает список заявок со статусами на русском языке."""
+    """
+    Возвращает заявки в формате:
+    (
+        id,
+        название,
+        статус,
+        автор,
+        category_id,
+        category_name,
+        priority
+    )
+    """
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             query = """
@@ -64,20 +120,32 @@ def get_all_requests(owner_id=None):
                     rr.id,
                     rr.title,
                     rr.status,
-                    COALESCE(au.username, 'Неизвестный пользователь')
+                    COALESCE(
+                        au.username,
+                        'Неизвестный пользователь'
+                    ),
+                    rr.category_id,
+                    COALESCE(rc.name, 'Не указана'),
+                    rr.priority
                 FROM repair_requests AS rr
                 LEFT JOIN app_users AS au
                     ON au.id = rr.owner_id
+                LEFT JOIN request_categories AS rc
+                    ON rc.id = rr.category_id
             """
 
             if owner_id is not None:
-                query += " WHERE rr.owner_id = %s"
+                query += """
+                    WHERE rr.owner_id = %s
+                """
                 cursor.execute(
                     query + " ORDER BY rr.id ASC;",
                     (owner_id,),
                 )
             else:
-                cursor.execute(query + " ORDER BY rr.id ASC;")
+                cursor.execute(
+                    query + " ORDER BY rr.id ASC;"
+                )
 
             rows = cursor.fetchall()
 
@@ -86,60 +154,62 @@ def get_all_requests(owner_id=None):
             request_id,
             title,
             STATUS_NAMES.get(status, status),
-            owner_username,
+            author,
+            category_id,
+            category_name,
+            priority,
         )
-        for request_id, title, status, owner_username in rows
+        for (
+            request_id,
+            title,
+            status,
+            author,
+            category_id,
+            category_name,
+            priority,
+        ) in rows
     ]
 
 
 def get_request_by_id(request_id: int, owner_id=None):
     """Возвращает подробную информацию о заявке."""
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            if owner_id is None:
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        title,
-                        description,
-                        status,
-                        created_at,
-                        updated_at,
-                        owner_id,
-                        COALESCE(
-                            (SELECT username FROM app_users
-                             WHERE app_users.id = repair_requests.owner_id),
-                            'Неизвестный пользователь'
-                        )
-                    FROM repair_requests
-                    WHERE id = %s;
-                    """,
-                    (request_id,),
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        title,
-                        description,
-                        status,
-                        created_at,
-                        updated_at,
-                        owner_id,
-                        COALESCE(
-                            (SELECT username FROM app_users
-                             WHERE app_users.id = repair_requests.owner_id),
-                            'Неизвестный пользователь'
-                        )
-                    FROM repair_requests
-                    WHERE id = %s
-                      AND owner_id = %s;
-                    """,
-                    (request_id, owner_id),
-                )
+            query = """
+                SELECT
+                    rr.id,
+                    rr.title,
+                    rr.description,
+                    rr.status,
+                    rr.created_at,
+                    rr.updated_at,
+                    rr.owner_id,
+                    COALESCE(
+                        au.username,
+                        'Неизвестный пользователь'
+                    ),
+                    rr.category_id,
+                    rc.name,
+                    rr.priority
+                FROM repair_requests AS rr
+                LEFT JOIN app_users AS au
+                    ON au.id = rr.owner_id
+                LEFT JOIN request_categories AS rc
+                    ON rc.id = rr.category_id
+                WHERE rr.id = %s
+            """
 
+            params = [request_id]
+
+            if owner_id is not None:
+                query += " AND rr.owner_id = %s"
+                params.append(owner_id)
+
+            cursor.execute(
+                query + ";",
+                tuple(params),
+            )
             request = cursor.fetchone()
 
     if request is None:
@@ -158,6 +228,13 @@ def get_request_by_id(request_id: int, owner_id=None):
         "updated_at": format_datetime(request[5]),
         "owner_id": request[6],
         "owner_username": request[7],
+        "category_id": request[8],
+        "category_name": request[9] or "Не указана",
+        "priority": request[10],
+        "priority_name": PRIORITY_NAMES.get(
+            request[10],
+            request[10],
+        ),
     }
 
 
@@ -165,19 +242,12 @@ def update_request_status(
     request_id: int,
     new_status: str,
 ) -> bool:
-    """Изменяет статус заявки с проверкой допустимости перехода."""
+    """Изменяет статус заявки."""
 
-    # Преобразуем русское название статуса в системное.
-    new_status = STATUS_VALUES.get(
-        new_status,
-        new_status,
-    )
+    new_status = STATUS_VALUES.get(new_status, new_status)
 
-    # Проверяем существование такого статуса.
     if new_status not in STATUS_NAMES:
-        raise ValueError(
-            "Указан неизвестный статус заявки."
-        )
+        raise ValueError("Указан неизвестный статус заявки.")
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
@@ -198,10 +268,7 @@ def update_request_status(
 
             current_status = request[0]
 
-            if (
-                current_status != "new"
-                and new_status == "new"
-            ):
+            if current_status != "new" and new_status == "new":
                 raise ValueError(
                     "Нельзя вернуть заявку в статус "
                     "«Новая» после изменения её первоначального статуса."
@@ -224,40 +291,9 @@ def update_request_status(
     return updated_request is not None
 
 
-def _sync_request_sequence(cursor):
-    """Синхронизирует последовательность идентификаторов."""
-    cursor.execute(
-        """
-        SELECT pg_get_serial_sequence(
-            'repair_requests',
-            'id'
-        );
-        """
-    )
-
-    result = cursor.fetchone()
-    sequence_name = result[0] if result else None
-
-    if sequence_name is not None:
-        cursor.execute(
-            """
-            SELECT setval(
-                %s,
-                COALESCE(
-                    (SELECT MAX(id) FROM repair_requests),
-                    1
-                ),
-                EXISTS (
-                    SELECT 1 FROM repair_requests
-                )
-            );
-            """,
-            (sequence_name,),
-        )
-
-
 def delete_request(request_id: int, owner_id=None) -> bool:
     """Удаляет заявку."""
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             if owner_id is None:
@@ -290,8 +326,11 @@ def create_request(
     description,
     photo_path=None,
     owner_id=None,
+    category_id=None,
+    priority="normal",
 ):
-    """Создаёт заявку и сохраняет фотографию, если она указана."""
+    """Создаёт заявку с категорией, приоритетом и фотографией."""
+
     title = title.strip()
     description = description.strip()
 
@@ -300,6 +339,9 @@ def create_request(
 
     if not description:
         raise ValueError("Введите описание заявки.")
+
+    category_id = _normalize_category_id(category_id)
+    priority = _normalize_priority(priority)
 
     photo_data = None
 
@@ -321,9 +363,11 @@ def create_request(
                     title,
                     description,
                     photo_data,
-                    owner_id
+                    owner_id,
+                    category_id,
+                    priority
                 )
-                VALUES (%s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id;
                 """,
                 (
@@ -331,6 +375,8 @@ def create_request(
                     description,
                     photo_data,
                     owner_id,
+                    category_id,
+                    priority,
                 ),
             )
 
@@ -341,6 +387,7 @@ def create_request(
 
 def get_request_photo(request_id: int, owner_id=None):
     """Возвращает фотографию заявки в виде байтов."""
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             if owner_id is None:
@@ -378,8 +425,11 @@ def update_request(
     photo_path=None,
     remove_photo: bool = False,
     owner_id=None,
+    category_id=None,
+    priority="normal",
 ) -> bool:
-    """Обновляет заявку, сохраняя или удаляя фотографию по запросу."""
+    """Обновляет заявку, категорию, приоритет и фотографию."""
+
     title = title.strip()
     description = description.strip()
 
@@ -388,6 +438,9 @@ def update_request(
 
     if not description:
         raise ValueError("Введите описание заявки.")
+
+    category_id = _normalize_category_id(category_id)
+    priority = _normalize_priority(priority)
 
     photo_data = None
 
@@ -407,62 +460,43 @@ def update_request(
         else ""
     )
 
+    if remove_photo:
+        photo_clause = "photo_data = NULL, "
+        photo_params = ()
+    elif photo_path:
+        photo_clause = "photo_data = %s, "
+        photo_params = (photo_data,)
+    else:
+        photo_clause = ""
+        photo_params = ()
+
+    query = (
+        "UPDATE repair_requests SET "
+        "title = %s, "
+        "description = %s, "
+        + photo_clause
+        + "category_id = %s, "
+        "priority = %s, "
+        "updated_at = CURRENT_TIMESTAMP "
+        "WHERE id = %s"
+        + owner_clause
+        + " RETURNING id;"
+    )
+
+    params = (
+        title,
+        description,
+        *photo_params,
+        category_id,
+        priority,
+        request_id,
+    )
+
+    if owner_id is not None:
+        params += (owner_id,)
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            if remove_photo:
-                query = (
-                    "UPDATE repair_requests "
-                    "SET title = %s, description = %s, "
-                    "photo_data = NULL, "
-                    "updated_at = CURRENT_TIMESTAMP "
-                    "WHERE id = %s"
-                    + owner_clause
-                    + " RETURNING id;"
-                )
-
-                params = (
-                    title,
-                    description,
-                    request_id,
-                )
-
-            elif photo_path:
-                query = (
-                    "UPDATE repair_requests "
-                    "SET title = %s, description = %s, "
-                    "photo_data = %s, "
-                    "updated_at = CURRENT_TIMESTAMP "
-                    "WHERE id = %s"
-                    + owner_clause
-                    + " RETURNING id;"
-                )
-
-                params = (
-                    title,
-                    description,
-                    photo_data,
-                    request_id,
-                )
-
-            else:
-                query = (
-                    "UPDATE repair_requests "
-                    "SET title = %s, description = %s, "
-                    "updated_at = CURRENT_TIMESTAMP "
-                    "WHERE id = %s"
-                    + owner_clause
-                    + " RETURNING id;"
-                )
-
-                params = (
-                    title,
-                    description,
-                    request_id,
-                )
-
-            if owner_id is not None:
-                params += (owner_id,)
-
             cursor.execute(query, params)
             updated_request = cursor.fetchone()
 

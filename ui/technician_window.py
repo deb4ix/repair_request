@@ -1,3 +1,4 @@
+
 import io
 from datetime import datetime
 
@@ -8,10 +9,20 @@ from PIL import Image
 from services.request_service import (
     get_all_requests,
     get_request_by_id,
+    get_categories,
     update_request_status,
     delete_request,
     get_request_photo,
 )
+
+
+STATUS_FILTER_VALUES = [
+    "Все статусы",
+    "Новая",
+    "В работе",
+    "Завершена",
+    "Отменена",
+]
 
 
 def format_datetime(value):
@@ -42,19 +53,44 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.title(
             f"Рабочее место специалиста — {user['username']}"
         )
-        self.geometry("1100x700")
-        self.minsize(850, 550)
+        self.geometry("1200x720")
+        self.minsize(900, 580)
         self.protocol("WM_DELETE_WINDOW", self.logout)
 
         self._auto_refresh_id = None
         self._current_table_theme = None
 
+        self.categories = []
+        self.category_names = []
+
         self.create_widgets()
         self.load_requests()
 
         self._auto_refresh_id = self.after(
-            5000, self.auto_refresh
+            5000,
+            self.auto_refresh,
         )
+
+    # --------------------------------------------------
+    # Категории
+    # --------------------------------------------------
+
+    def load_categories(self):
+        self.categories = get_categories()
+        self.category_names = [
+            name for category_id, name in self.categories
+        ]
+
+    def update_category_filter(self):
+        self.load_categories()
+
+        values = ["Все категории"] + self.category_names
+        current = self.category_filter.get()
+
+        self.category_filter.configure(values=values)
+
+        if current not in values:
+            self.category_filter.set("Все категории")
 
     # --------------------------------------------------
     # Интерфейс
@@ -69,15 +105,19 @@ class TechnicianWindow(ctk.CTkToplevel):
             text="Заявки на ремонт",
             font=ctk.CTkFont(size=24, weight="bold"),
         ).grid(
-            row=0, column=0,
-            padx=20, pady=(20, 10),
+            row=0,
+            column=0,
+            padx=20,
+            pady=(20, 10),
             sticky="w",
         )
 
         filter_frame = ctk.CTkFrame(self)
         filter_frame.grid(
-            row=1, column=0,
-            padx=20, pady=10,
+            row=1,
+            column=0,
+            padx=20,
+            pady=10,
             sticky="ew",
         )
         filter_frame.grid_columnconfigure(0, weight=1)
@@ -87,8 +127,10 @@ class TechnicianWindow(ctk.CTkToplevel):
             placeholder_text="Поиск по названию заявки...",
         )
         self.search_entry.grid(
-            row=0, column=0,
-            padx=10, pady=10,
+            row=0,
+            column=0,
+            padx=10,
+            pady=10,
             sticky="ew",
         )
         self.search_entry.bind(
@@ -98,27 +140,42 @@ class TechnicianWindow(ctk.CTkToplevel):
 
         self.status_filter = ctk.CTkOptionMenu(
             filter_frame,
-            values=[
-                "Все статусы",
-                "Новая",
-                "В работе",
-                "Завершена",
-                "Отменена",
-            ],
+            values=STATUS_FILTER_VALUES,
             command=lambda value: self.load_requests(
                 show_errors=False
             ),
+            width=150,
         )
         self.status_filter.set("Все статусы")
         self.status_filter.grid(
-            row=0, column=1,
-            padx=10, pady=10,
+            row=0,
+            column=1,
+            padx=10,
+            pady=10,
+        )
+
+        self.category_filter = ctk.CTkOptionMenu(
+            filter_frame,
+            values=["Все категории"],
+            command=lambda value: self.load_requests(
+                show_errors=False
+            ),
+            width=210,
+        )
+        self.category_filter.set("Все категории")
+        self.category_filter.grid(
+            row=0,
+            column=2,
+            padx=10,
+            pady=10,
         )
 
         table_frame = ctk.CTkFrame(self)
         table_frame.grid(
-            row=2, column=0,
-            padx=20, pady=10,
+            row=2,
+            column=0,
+            padx=20,
+            pady=10,
             sticky="nsew",
         )
         table_frame.grid_columnconfigure(0, weight=1)
@@ -126,7 +183,13 @@ class TechnicianWindow(ctk.CTkToplevel):
 
         self.tree = ttk.Treeview(
             table_frame,
-            columns=("id", "title", "status", "author"),
+            columns=(
+                "id",
+                "title",
+                "category",
+                "status",
+                "author",
+            ),
             show="headings",
             selectmode="browse",
             style="Technician.Treeview",
@@ -134,16 +197,40 @@ class TechnicianWindow(ctk.CTkToplevel):
 
         self.tree.heading("id", text="№")
         self.tree.heading("title", text="Название заявки")
+        self.tree.heading("category", text="Категория")
         self.tree.heading("status", text="Статус")
         self.tree.heading("author", text="Отправитель")
 
-        self.tree.column("id", width=70, anchor="center")
-        self.tree.column("title", width=600, anchor="w")
-        self.tree.column("status", width=150, anchor="center")
-        self.tree.column("author", width=190, anchor="center")
+        self.tree.column(
+            "id",
+            width=65,
+            anchor="center",
+            stretch=False,
+        )
+        self.tree.column(
+            "title",
+            width=330,
+            anchor="w",
+        )
+        self.tree.column(
+            "category",
+            width=210,
+            anchor="center",
+        )
+        self.tree.column(
+            "status",
+            width=130,
+            anchor="center",
+        )
+        self.tree.column(
+            "author",
+            width=180,
+            anchor="center",
+        )
 
         self.tree.grid(
-            row=0, column=0,
+            row=0,
+            column=0,
             sticky="nsew",
         )
 
@@ -155,7 +242,6 @@ class TechnicianWindow(ctk.CTkToplevel):
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scrollbar.set)
 
-        # Настраиваем цвета таблицы сразу при создании.
         self.update_table_theme()
 
         self.tree.bind(
@@ -165,8 +251,10 @@ class TechnicianWindow(ctk.CTkToplevel):
 
         buttons_frame = ctk.CTkFrame(self)
         buttons_frame.grid(
-            row=3, column=0,
-            padx=20, pady=(5, 20),
+            row=3,
+            column=0,
+            padx=20,
+            pady=(5, 20),
             sticky="ew",
         )
 
@@ -211,11 +299,10 @@ class TechnicianWindow(ctk.CTkToplevel):
         ).pack(side="right", padx=8, pady=10)
 
     # --------------------------------------------------
-    # Оформление таблицы и цвета статусов
+    # Оформление таблицы
     # --------------------------------------------------
 
     def update_table_theme(self):
-        """Применяет оформление Treeview под текущую тему CustomTkinter."""
         appearance = ctk.get_appearance_mode()
         is_dark = appearance.lower() == "dark"
 
@@ -247,7 +334,7 @@ class TechnicianWindow(ctk.CTkToplevel):
             }
 
         style = ttk.Style(self)
-        # Тема clam позволяет корректно задавать фон и цвета текста.
+
         try:
             style.theme_use("clam")
         except Exception:
@@ -262,6 +349,7 @@ class TechnicianWindow(ctk.CTkToplevel):
             font=("Arial", 10),
             borderwidth=0,
         )
+
         style.configure(
             "Technician.Treeview.Heading",
             background=heading_background,
@@ -270,89 +358,104 @@ class TechnicianWindow(ctk.CTkToplevel):
             relief="flat",
             padding=(8, 8),
         )
+
         style.map(
             "Technician.Treeview",
             background=[("selected", selected_background)],
-            foreground=[("selected", "#FFFFFF" if is_dark else "#202020")],
+            foreground=[
+                ("selected", "#FFFFFF" if is_dark else "#202020")
+            ],
         )
+
         style.map(
             "Technician.Treeview.Heading",
             background=[("active", heading_background)],
             foreground=[("active", heading_foreground)],
         )
 
-        # Цветные строки для каждого статуса.
-        for status, (row_background, row_foreground) in status_colors.items():
+        for status, colors in status_colors.items():
             self.tree.tag_configure(
                 status,
-                background=row_background,
-                foreground=row_foreground,
+                background=colors[0],
+                foreground=colors[1],
             )
 
         self._current_table_theme = appearance
 
     @staticmethod
     def get_status_tag(status):
-        """Преобразует статус из БД или интерфейса в тег таблицы."""
+        normalized = (status or "").strip().casefold()
+
         status_tags = {
             "new": "new",
-            "Новая": "new",
+            "новая": "new",
             "in_progress": "in_progress",
-            "В работе": "in_progress",
+            "в работе": "in_progress",
             "completed": "completed",
-            "Завершена": "completed",
+            "завершена": "completed",
             "cancelled": "cancelled",
-            "Отменена": "cancelled",
+            "canceled": "cancelled",
+            "отменена": "cancelled",
         }
-        return status_tags.get(status, "")
+
+        return status_tags.get(normalized, "")
 
     # --------------------------------------------------
-    # Выход из аккаунта
-    # --------------------------------------------------
-
-    def logout(self):
-        if self._auto_refresh_id is not None:
-            try:
-                self.after_cancel(self._auto_refresh_id)
-            except Exception:
-                pass
-            self._auto_refresh_id = None
-
-        self.withdraw()
-
-        if self.master is not None and self.master.winfo_exists():
-            self.master.deiconify()
-            self.master.lift()
-
-    # --------------------------------------------------
-    # Загрузка заявок
+    # Загрузка и фильтрация заявок
     # --------------------------------------------------
 
     def load_requests(self, show_errors=True):
         try:
-            # Если пользователь переключил тему в другом окне,
-            # обновляем оформление таблицы и здесь.
             current_theme = ctk.get_appearance_mode()
+
             if current_theme != self._current_table_theme:
                 self.update_table_theme()
 
             requests = get_all_requests()
+            self.update_category_filter()
 
-            search_text = self.search_entry.get().strip().lower()
-            selected_status = self.status_filter.get()
+            search_text = (
+                self.search_entry.get().strip().casefold()
+            )
+            selected_status = (
+                self.status_filter.get().strip().casefold()
+            )
+            selected_category = self.category_filter.get()
 
             for item in self.tree.get_children():
                 self.tree.delete(item)
 
             for request in requests:
-                request_id, title, status, author = request
+                (
+                    request_id,
+                    title,
+                    status,
+                    author,
+                    category_id,
+                    category_name,
+                    priority,
+                ) = request
 
-                if search_text and search_text not in title.lower():
+                title = title or ""
+                status = status or ""
+                author = author or "Неизвестный пользователь"
+                category_name = category_name or "Не указана"
+
+                if (
+                    search_text
+                    and search_text not in title.casefold()
+                ):
                     continue
 
                 if (
-                    selected_status != "Все статусы"
-                    and status != selected_status
+                    selected_status != "все статусы"
+                    and status.casefold() != selected_status
+                ):
+                    continue
+
+                if (
+                    selected_category != "Все категории"
+                    and category_name != selected_category
                 ):
                     continue
 
@@ -362,7 +465,13 @@ class TechnicianWindow(ctk.CTkToplevel):
                     "",
                     "end",
                     iid=str(request_id),
-                    values=(request_id, title, status, author),
+                    values=(
+                        request_id,
+                        title,
+                        category_name,
+                        status,
+                        author,
+                    ),
                     tags=(status_tag,) if status_tag else (),
                 )
 
@@ -378,8 +487,23 @@ class TechnicianWindow(ctk.CTkToplevel):
     # Автоматическое обновление
     # --------------------------------------------------
 
+    def auto_refresh(self):
+        if not self.winfo_exists() or not self.winfo_viewable():
+            self._auto_refresh_id = None
+            return
+
+        self.load_requests(show_errors=False)
+
+        self._auto_refresh_id = self.after(
+            5000,
+            self.auto_refresh,
+        )
+
+    # --------------------------------------------------
+    # Настройки
+    # --------------------------------------------------
+
     def show_settings(self):
-        """Открывает настройки внешнего вида рабочего места ремонтника."""
         settings_window = ctk.CTkToplevel(self)
         settings_window.title("Настройки")
         settings_window.geometry("380x230")
@@ -401,12 +525,13 @@ class TechnicianWindow(ctk.CTkToplevel):
         theme_selector = ctk.CTkSegmentedButton(
             settings_window,
             values=["Светлая", "Тёмная"],
-            command=lambda value: self.change_theme(value),
+            command=self.change_theme,
         )
         theme_selector.pack(anchor="w", padx=24, pady=8)
 
         theme_selector.set(
-            "Тёмная" if ctk.get_appearance_mode() == "Dark"
+            "Тёмная"
+            if ctk.get_appearance_mode() == "Dark"
             else "Светлая"
         )
 
@@ -415,19 +540,28 @@ class TechnicianWindow(ctk.CTkToplevel):
             "Светлая": "Light",
             "Тёмная": "Dark",
         }
+
         ctk.set_appearance_mode(themes[selected_theme])
         self.update_table_theme()
 
-    def auto_refresh(self):
-        if not self.winfo_exists() or not self.winfo_viewable():
+    # --------------------------------------------------
+    # Выход из аккаунта
+    # --------------------------------------------------
+
+    def logout(self):
+        if self._auto_refresh_id is not None:
+            try:
+                self.after_cancel(self._auto_refresh_id)
+            except Exception:
+                pass
+
             self._auto_refresh_id = None
-            return
 
-        self.load_requests(show_errors=False)
+        self.withdraw()
 
-        self._auto_refresh_id = self.after(
-            5000, self.auto_refresh
-        )
+        if self.master is not None and self.master.winfo_exists():
+            self.master.deiconify()
+            self.master.lift()
 
     # --------------------------------------------------
     # Выбор заявки
@@ -447,7 +581,7 @@ class TechnicianWindow(ctk.CTkToplevel):
         return int(selected_items[0])
 
     # --------------------------------------------------
-    # Подробности заявки и предпросмотр фото
+    # Подробности заявки и фотография
     # --------------------------------------------------
 
     def show_request_details(self):
@@ -482,69 +616,68 @@ class TechnicianWindow(ctk.CTkToplevel):
                 text=f"Заявка №{request['id']}",
                 font=ctk.CTkFont(size=24, weight="bold"),
             ).grid(
-                row=0, column=0,
-                padx=20, pady=(20, 10),
+                row=0,
+                column=0,
+                padx=20,
+                pady=(20, 10),
                 sticky="w",
             )
 
             content_frame = ctk.CTkScrollableFrame(details_window)
             content_frame.grid(
-                row=1, column=0,
-                padx=20, pady=10,
+                row=1,
+                column=0,
+                padx=20,
+                pady=10,
                 sticky="nsew",
             )
             content_frame.grid_columnconfigure(0, weight=1)
 
-            ctk.CTkLabel(
-                content_frame,
-                text="Название:",
-                font=ctk.CTkFont(weight="bold"),
-            ).pack(anchor="w", pady=(5, 0))
-
-            ctk.CTkLabel(
-                content_frame,
-                text=request["title"],
-                wraplength=620,
-                justify="left",
-            ).pack(anchor="w", pady=(0, 12))
-
-            ctk.CTkLabel(
-                content_frame,
-                text=f"Отправитель: {request.get('owner_username', 'Неизвестный пользователь')}",
-            ).pack(anchor="w", pady=(0, 12))
-
-            ctk.CTkLabel(
-                content_frame,
-                text="Описание:",
-                font=ctk.CTkFont(weight="bold"),
-            ).pack(anchor="w", pady=(5, 0))
-
-            ctk.CTkLabel(
-                content_frame,
-                text=request["description"],
-                wraplength=620,
-                justify="left",
-            ).pack(anchor="w", pady=(0, 12))
-
-            ctk.CTkLabel(
-                content_frame,
-                text=f"Статус: {request['status_name']}",
-            ).pack(anchor="w", pady=5)
-
-            ctk.CTkLabel(
-                content_frame,
-                text=f"Создана: {format_datetime(request['created_at'])}",
-            ).pack(anchor="w", pady=5)
-
-            ctk.CTkLabel(
-                content_frame,
-                text=(
-                    "Последнее обновление: "
-                    f"{format_datetime(request['updated_at'])}"
+            fields = [
+                ("Название", request.get("title")),
+                (
+                    "Отправитель",
+                    request.get(
+                        "owner_username",
+                        "Неизвестный пользователь",
+                    ),
                 ),
-                wraplength=620,
-                justify="left",
-            ).pack(anchor="w", pady=5)
+                ("Описание", request.get("description")),
+                (
+                    "Категория",
+                    request.get("category_name", "Не указана"),
+                ),
+                (
+                    "Приоритет",
+                    request.get("priority_name", "Обычный"),
+                ),
+                (
+                    "Статус",
+                    request.get("status_name", "Не указан"),
+                ),
+                (
+                    "Создана",
+                    format_datetime(request.get("created_at")),
+                ),
+                (
+                    "Последнее обновление",
+                    format_datetime(request.get("updated_at")),
+                ),
+            ]
+
+            for label_text, value in fields:
+                ctk.CTkLabel(
+                    content_frame,
+                    text=f"{label_text}:",
+                    font=ctk.CTkFont(weight="bold"),
+                ).pack(anchor="w", pady=(7, 0))
+
+                ctk.CTkLabel(
+                    content_frame,
+                    text=str(value or "Не указано"),
+                    wraplength=620,
+                    justify="left",
+                ).pack(anchor="w", pady=(0, 7))
 
             ctk.CTkLabel(
                 content_frame,
@@ -655,6 +788,10 @@ class TechnicianWindow(ctk.CTkToplevel):
                 f"Не удалось открыть фотографию:\n{error}",
                 parent=self,
             )
+
+    # --------------------------------------------------
+    # Изменение статуса
+    # --------------------------------------------------
 
     def change_request_status(self):
         request_id = self.get_selected_request_id()

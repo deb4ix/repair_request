@@ -1,3 +1,4 @@
+
 import io
 from pathlib import Path
 
@@ -9,10 +10,31 @@ from services.request_service import (
     get_all_requests,
     get_request_by_id,
     get_request_photo,
+    get_categories,
     create_request,
     update_request,
     delete_request,
 )
+
+
+PRIORITY_OPTIONS = {
+    "Низкий": "low",
+    "Обычный": "normal",
+    "Высокий": "high",
+    "Критический": "critical",
+}
+
+PRIORITY_NAMES = {
+    value: key for key, value in PRIORITY_OPTIONS.items()
+}
+
+STATUS_FILTER_VALUES = [
+    "Все статусы",
+    "Новая",
+    "В работе",
+    "Завершена",
+    "Отменена",
+]
 
 
 class MainWindow(ctk.CTkToplevel):
@@ -20,20 +42,73 @@ class MainWindow(ctk.CTkToplevel):
         super().__init__(master)
 
         self.current_user = user
-        self.title(
-            f"Учёт заявок на ремонт — {user['username']}"
-        )
-        self.geometry("1100x700")
-        self.minsize(800, 600)
+        self.title(f"Учёт заявок на ремонт — {user['username']}")
+        self.geometry("1200x720")
+        self.minsize(850, 600)
         self.protocol("WM_DELETE_WINDOW", self.logout)
 
         self.selected_photo_path = None
         self.remove_existing_photo = False
 
+        self.categories = []
+        self.category_name_to_id = {}
+        self.category_id_to_name = {}
+
         self.create_widgets()
         self.update_table_theme()
         self.show_requests()
         self.load_requests()
+
+    # --------------------------------------------------
+    # Категории
+    # --------------------------------------------------
+
+    def load_categories(self):
+        categories = get_categories()
+
+        if not categories:
+            raise ValueError(
+                "В базе данных нет категорий заявок. "
+                "Проверьте таблицу request_categories."
+            )
+
+        self.categories = categories
+        self.category_name_to_id = {
+            name: category_id
+            for category_id, name in categories
+        }
+        self.category_id_to_name = {
+            category_id: name
+            for category_id, name in categories
+        }
+
+        return categories
+
+    def get_category_values(self):
+        return [name for _, name in self.categories]
+
+    def update_category_filter(self):
+        """Обновляет значения фильтра категорий."""
+        try:
+            self.load_categories()
+            values = ["Все категории"] + self.get_category_values()
+
+            current = self.category_filter.get()
+            self.category_filter.configure(values=values)
+
+            if current not in values:
+                self.category_filter.set("Все категории")
+
+        except Exception as error:
+            self.category_filter.configure(
+                values=["Все категории"]
+            )
+            self.category_filter.set("Все категории")
+            raise error
+
+    # --------------------------------------------------
+    # Оформление таблицы
+    # --------------------------------------------------
 
     def update_table_theme(self):
         style = ttk.Style()
@@ -86,54 +161,46 @@ class MainWindow(ctk.CTkToplevel):
 
         style.map(
             "Treeview",
-            background=[
-                ("selected", selected_background)
-            ],
-            foreground=[
-                ("selected", "#FFFFFF")
-            ],
+            background=[("selected", selected_background)],
+            foreground=[("selected", "#FFFFFF")],
         )
 
         style.map(
             "Treeview.Heading",
-            background=[
-                ("active", heading_background)
-            ],
+            background=[("active", heading_background)],
         )
 
-        # Цвета строк в зависимости от статуса заявки.
         for tag_name, colors in status_colors.items():
-            row_background, row_foreground = colors
             self.request_table.tag_configure(
                 tag_name,
-                background=row_background,
-                foreground=row_foreground,
+                background=colors[0],
+                foreground=colors[1],
             )
 
     @staticmethod
     def get_status_tag(status):
-        """Возвращает тег оформления для статуса заявки."""
-        normalized_status = (status or "").strip().casefold()
+        normalized = (status or "").strip().casefold()
 
         status_tags = {
             "новая": "new",
             "new": "new",
-
             "в работе": "in_progress",
             "in progress": "in_progress",
             "in_progress": "in_progress",
-
             "завершена": "completed",
             "завершено": "completed",
             "completed": "completed",
-
             "отменена": "cancelled",
             "отменено": "cancelled",
             "cancelled": "cancelled",
             "canceled": "cancelled",
         }
 
-        return status_tags.get(normalized_status, "")
+        return status_tags.get(normalized, "")
+
+    # --------------------------------------------------
+    # Создание интерфейса
+    # --------------------------------------------------
 
     def create_widgets(self):
         self.sidebar = ctk.CTkFrame(self, width=220)
@@ -153,32 +220,21 @@ class MainWindow(ctk.CTkToplevel):
             font=("Arial", 18, "bold"),
             wraplength=180,
         )
-        self.sidebar_title.pack(
-            padx=15,
-            pady=(25, 30),
-        )
+        self.sidebar_title.pack(padx=15, pady=(25, 30))
 
         self.requests_button = ctk.CTkButton(
             self.sidebar,
             text="Заявки",
             command=self.show_requests,
         )
-        self.requests_button.pack(
-            fill="x",
-            padx=15,
-            pady=5,
-        )
+        self.requests_button.pack(fill="x", padx=15, pady=5)
 
         self.settings_button = ctk.CTkButton(
             self.sidebar,
             text="Настройки",
             command=self.show_settings,
         )
-        self.settings_button.pack(
-            fill="x",
-            padx=15,
-            pady=5,
-        )
+        self.settings_button.pack(fill="x", padx=15, pady=5)
 
         self.account_label = ctk.CTkLabel(
             self.sidebar,
@@ -218,7 +274,7 @@ class MainWindow(ctk.CTkToplevel):
 
         self.page_description = ctk.CTkLabel(
             self.content,
-            text="Просмотр всех заявок и управление собственными",
+            text="Просмотр и управление собственными заявками",
         )
         self.page_description.pack(
             anchor="w",
@@ -226,9 +282,7 @@ class MainWindow(ctk.CTkToplevel):
             pady=(0, 20),
         )
 
-        self.requests_frame = ctk.CTkFrame(
-            self.content
-        )
+        self.requests_frame = ctk.CTkFrame(self.content)
 
         search_frame = ctk.CTkFrame(
             self.requests_frame,
@@ -258,22 +312,31 @@ class MainWindow(ctk.CTkToplevel):
 
         self.status_filter = ctk.CTkComboBox(
             search_frame,
-            values=[
-                "Все статусы",
-                "Новая",
-                "В работе",
-                "Завершена",
-                "Отменена",
-            ],
+            values=STATUS_FILTER_VALUES,
             command=lambda value: self.load_requests(),
-            width=160,
+            width=150,
+            state="readonly",
         )
         self.status_filter.pack(
+            side="left",
+            padx=5,
+            pady=5,
+        )
+        self.status_filter.set("Все статусы")
+
+        self.category_filter = ctk.CTkComboBox(
+            search_frame,
+            values=["Все категории"],
+            command=lambda value: self.load_requests(),
+            width=210,
+            state="readonly",
+        )
+        self.category_filter.pack(
             side="left",
             padx=(5, 0),
             pady=5,
         )
-        self.status_filter.set("Все статусы")
+        self.category_filter.set("Все категории")
 
         self.request_actions = ctk.CTkFrame(
             self.requests_frame,
@@ -321,39 +384,37 @@ class MainWindow(ctk.CTkToplevel):
 
         self.request_table = ttk.Treeview(
             self.requests_frame,
-            columns=("id", "title", "status", "author"),
+            columns=(
+                "id",
+                "title",
+                "category",
+                "status",
+                "author",
+            ),
             show="headings",
             selectmode="browse",
         )
 
         self.request_table.heading("id", text="Номер")
-        self.request_table.heading(
-            "title",
-            text="Название заявки",
-        )
+        self.request_table.heading("title", text="Название заявки")
+        self.request_table.heading("category", text="Категория")
         self.request_table.heading("status", text="Статус")
         self.request_table.heading("author", text="Отправитель")
 
         self.request_table.column(
-            "id",
-            width=70,
-            anchor="center",
-            stretch=False,
+            "id", width=65, anchor="center", stretch=False
         )
         self.request_table.column(
-            "title",
-            width=400,
-            anchor="w",
+            "title", width=300, anchor="w"
         )
         self.request_table.column(
-            "status",
-            width=150,
-            anchor="center",
+            "category", width=190, anchor="center"
         )
         self.request_table.column(
-            "author",
-            width=180,
-            anchor="center",
+            "status", width=125, anchor="center"
+        )
+        self.request_table.column(
+            "author", width=150, anchor="center"
         )
 
         self.request_table.pack(
@@ -368,12 +429,14 @@ class MainWindow(ctk.CTkToplevel):
             lambda event: self.show_request_details(),
         )
 
+    # --------------------------------------------------
+    # Страницы
+    # --------------------------------------------------
+
     def show_requests(self):
-        self.page_title.configure(
-            text="Заявки на ремонт"
-        )
+        self.page_title.configure(text="Заявки на ремонт")
         self.page_description.configure(
-            text="Просмотр всех заявок и управление собственными"
+            text="Просмотр и управление собственными заявками"
         )
 
         if hasattr(self, "settings_frame"):
@@ -387,10 +450,18 @@ class MainWindow(ctk.CTkToplevel):
                 pady=(0, 30),
             )
 
+    # --------------------------------------------------
+    # Загрузка и фильтрация заявок
+    # --------------------------------------------------
+
     def load_requests(self):
         try:
-            # Пользователь видит общий список заявок и их авторов.
-            requests = get_all_requests()
+            requests = get_all_requests(
+                owner_id=self.current_user["id"]
+            )
+
+            # Справочник категорий нужен также для фильтра.
+            self.update_category_filter()
 
             search_text = (
                 self.search_entry.get().strip().casefold()
@@ -398,14 +469,26 @@ class MainWindow(ctk.CTkToplevel):
             selected_status = (
                 self.status_filter.get().strip().casefold()
             )
+            selected_category = self.category_filter.get()
 
             for item in self.request_table.get_children():
                 self.request_table.delete(item)
 
-            for request_id, title, status, author in requests:
+            for request in requests:
+                (
+                    request_id,
+                    title,
+                    status,
+                    author,
+                    category_id,
+                    category_name,
+                    priority,
+                ) = request
+
                 title = title or ""
                 status = status or ""
                 author = author or "Неизвестный пользователь"
+                category_name = category_name or "Не указана"
 
                 if (
                     search_text
@@ -419,6 +502,12 @@ class MainWindow(ctk.CTkToplevel):
                 ):
                     continue
 
+                if (
+                    selected_category != "Все категории"
+                    and category_name != selected_category
+                ):
+                    continue
+
                 status_tag = self.get_status_tag(status)
                 tags = (status_tag,) if status_tag else ()
 
@@ -426,7 +515,13 @@ class MainWindow(ctk.CTkToplevel):
                     "",
                     "end",
                     iid=str(request_id),
-                    values=(request_id, title, status, author),
+                    values=(
+                        request_id,
+                        title,
+                        category_name,
+                        status,
+                        author,
+                    ),
                     tags=tags,
                 )
 
@@ -450,6 +545,10 @@ class MainWindow(ctk.CTkToplevel):
 
         return int(selected_items[0])
 
+    # --------------------------------------------------
+    # Подробности заявки
+    # --------------------------------------------------
+
     def show_request_details(self):
         request_id = self.get_selected_request_id()
 
@@ -457,7 +556,10 @@ class MainWindow(ctk.CTkToplevel):
             return
 
         try:
-            request = get_request_by_id(request_id)
+            request = get_request_by_id(
+                request_id,
+                self.current_user["id"],
+            )
 
             if request is None:
                 messagebox.showwarning(
@@ -469,29 +571,18 @@ class MainWindow(ctk.CTkToplevel):
                 return
 
             details_window = ctk.CTkToplevel(self)
-            details_window.title(
-                f"Заявка №{request_id}"
-            )
-            details_window.geometry("700x600")
+            details_window.title(f"Заявка №{request_id}")
+            details_window.geometry("700x650")
             details_window.minsize(500, 400)
             details_window.transient(self)
 
-            details_window.grid_columnconfigure(
-                0,
-                weight=1,
-            )
-            details_window.grid_rowconfigure(
-                1,
-                weight=1,
-            )
+            details_window.grid_columnconfigure(0, weight=1)
+            details_window.grid_rowconfigure(1, weight=1)
 
             ctk.CTkLabel(
                 details_window,
                 text=f"Заявка №{request_id}",
-                font=ctk.CTkFont(
-                    size=24,
-                    weight="bold",
-                ),
+                font=ctk.CTkFont(size=24, weight="bold"),
             ).grid(
                 row=0,
                 column=0,
@@ -500,9 +591,7 @@ class MainWindow(ctk.CTkToplevel):
                 sticky="w",
             )
 
-            content = ctk.CTkScrollableFrame(
-                details_window
-            )
+            content = ctk.CTkScrollableFrame(details_window)
             content.grid(
                 row=1,
                 column=0,
@@ -514,14 +603,19 @@ class MainWindow(ctk.CTkToplevel):
 
             fields = [
                 ("Название", request["title"]),
-                ("Отправитель", request.get("owner_username", "Неизвестный пользователь")),
+                (
+                    "Отправитель",
+                    request.get(
+                        "owner_username",
+                        "Неизвестный пользователь",
+                    ),
+                ),
                 ("Описание", request["description"]),
+                ("Категория", request.get("category_name", "Не указана")),
+                ("Приоритет", request.get("priority_name", "Обычный")),
                 ("Статус", request["status_name"]),
                 ("Создана", request["created_at"]),
-                (
-                    "Последнее обновление",
-                    request["updated_at"],
-                ),
+                ("Последнее обновление", request["updated_at"]),
             ]
 
             for label_text, value in fields:
@@ -529,27 +623,19 @@ class MainWindow(ctk.CTkToplevel):
                     content,
                     text=f"{label_text}:",
                     font=ctk.CTkFont(weight="bold"),
-                ).pack(
-                    anchor="w",
-                    pady=(10, 2),
-                )
+                ).pack(anchor="w", pady=(10, 2))
 
                 ctk.CTkLabel(
                     content,
                     text=str(value or "Не указано"),
                     wraplength=580,
                     justify="left",
-                ).pack(
-                    anchor="w",
-                    pady=(0, 5),
-                )
+                ).pack(anchor="w", pady=(0, 5))
 
             ctk.CTkButton(
                 details_window,
                 text="Просмотреть фотографию",
-                command=lambda rid=request_id: (
-                    self.show_request_photo(rid)
-                ),
+                command=lambda rid=request_id: self.show_request_photo(rid),
             ).grid(
                 row=2,
                 column=0,
@@ -564,9 +650,16 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
+    # --------------------------------------------------
+    # Фотографии
+    # --------------------------------------------------
+
     def show_request_photo(self, request_id):
         try:
-            photo_data = get_request_photo(request_id)
+            photo_data = get_request_photo(
+                request_id,
+                self.current_user["id"],
+            )
 
             if not photo_data:
                 messagebox.showinfo(
@@ -581,9 +674,7 @@ class MainWindow(ctk.CTkToplevel):
             image.thumbnail((900, 650))
 
             photo_window = ctk.CTkToplevel(self)
-            photo_window.title(
-                f"Фотография заявки №{request_id}"
-            )
+            photo_window.title(f"Фотография заявки №{request_id}")
             photo_window.geometry("950x750")
             photo_window.minsize(400, 300)
             photo_window.transient(self)
@@ -614,6 +705,10 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
+    # --------------------------------------------------
+    # Удаление заявки
+    # --------------------------------------------------
+
     def delete_selected_request(self):
         request_id = self.get_selected_request_id()
 
@@ -621,10 +716,7 @@ class MainWindow(ctk.CTkToplevel):
             return
 
         selected = self.request_table.selection()
-        values = self.request_table.item(
-            selected[0],
-            "values",
-        )
+        values = self.request_table.item(selected[0], "values")
         request_title = values[1]
 
         confirmed = messagebox.askyesno(
@@ -666,6 +758,81 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
+    # --------------------------------------------------
+    # Поля категории и приоритета
+    # --------------------------------------------------
+
+    def create_category_controls(
+        self,
+        parent,
+        category_id=None,
+        priority="normal",
+    ):
+        ctk.CTkLabel(
+            parent,
+            text="Категория заявки",
+        ).pack(anchor="w", padx=25, pady=(0, 5))
+
+        category_names = self.get_category_values()
+
+        self.category_selector = ctk.CTkComboBox(
+            parent,
+            values=category_names,
+            state="readonly",
+        )
+        self.category_selector.pack(
+            fill="x",
+            padx=25,
+            pady=(0, 15),
+        )
+
+        selected_category = self.category_id_to_name.get(
+            category_id,
+            category_names[0],
+        )
+        self.category_selector.set(selected_category)
+
+        ctk.CTkLabel(
+            parent,
+            text="Приоритет заявки",
+        ).pack(anchor="w", padx=25, pady=(0, 5))
+
+        self.priority_selector = ctk.CTkComboBox(
+            parent,
+            values=list(PRIORITY_OPTIONS.keys()),
+            state="readonly",
+        )
+        self.priority_selector.pack(
+            fill="x",
+            padx=25,
+            pady=(0, 15),
+        )
+        self.priority_selector.set(
+            PRIORITY_NAMES.get(priority, "Обычный")
+        )
+
+    def get_form_category_id(self):
+        category_name = self.category_selector.get()
+        category_id = self.category_name_to_id.get(category_name)
+
+        if category_id is None:
+            raise ValueError("Выберите категорию заявки.")
+
+        return category_id
+
+    def get_form_priority(self):
+        priority_name = self.priority_selector.get()
+        priority = PRIORITY_OPTIONS.get(priority_name)
+
+        if priority is None:
+            raise ValueError("Выберите приоритет заявки.")
+
+        return priority
+
+    # --------------------------------------------------
+    # Редактирование заявки
+    # --------------------------------------------------
+
     def open_edit_request(self):
         request_id = self.get_selected_request_id()
 
@@ -686,6 +853,8 @@ class MainWindow(ctk.CTkToplevel):
                 )
                 return
 
+            self.load_categories()
+
             self.editing_request_id = request_id
             self.selected_photo_path = None
             self.remove_existing_photo = False
@@ -694,16 +863,15 @@ class MainWindow(ctk.CTkToplevel):
                 get_request_photo(
                     request_id,
                     self.current_user["id"],
-                )
-                is not None
+                ) is not None
             )
 
             self.request_window = ctk.CTkToplevel(self)
             self.request_window.title(
                 f"Редактирование заявки №{request_id}"
             )
-            self.request_window.geometry("500x700")
-            self.request_window.minsize(450, 600)
+            self.request_window.geometry("500x850")
+            self.request_window.minsize(450, 750)
             self.request_window.transient(self)
             self.request_window.grab_set()
 
@@ -711,20 +879,12 @@ class MainWindow(ctk.CTkToplevel):
                 self.request_window,
                 text=f"Редактирование заявки №{request_id}",
                 font=("Arial", 22, "bold"),
-            ).pack(
-                anchor="w",
-                padx=25,
-                pady=(25, 20),
-            )
+            ).pack(anchor="w", padx=25, pady=(25, 20))
 
             ctk.CTkLabel(
                 self.request_window,
                 text="Название заявки",
-            ).pack(
-                anchor="w",
-                padx=25,
-                pady=(0, 5),
-            )
+            ).pack(anchor="w", padx=25, pady=(0, 5))
 
             self.request_title_entry = ctk.CTkEntry(
                 self.request_window,
@@ -735,25 +895,22 @@ class MainWindow(ctk.CTkToplevel):
                 padx=25,
                 pady=(0, 15),
             )
-            self.request_title_entry.insert(
-                0,
-                request["title"] or "",
+            self.request_title_entry.insert(0, request["title"] or "")
+
+            self.create_category_controls(
+                self.request_window,
+                category_id=request.get("category_id"),
+                priority=request.get("priority", "normal"),
             )
 
             ctk.CTkLabel(
                 self.request_window,
                 text="Описание проблемы",
-            ).pack(
-                anchor="w",
-                padx=25,
-                pady=(0, 5),
-            )
+            ).pack(anchor="w", padx=25, pady=(0, 5))
 
-            self.request_description_entry = (
-                ctk.CTkTextbox(
-                    self.request_window,
-                    height=150,
-                )
+            self.request_description_entry = ctk.CTkTextbox(
+                self.request_window,
+                height=130,
             )
             self.request_description_entry.pack(
                 fill="both",
@@ -770,11 +927,7 @@ class MainWindow(ctk.CTkToplevel):
                 self.request_window,
                 text="Фотография поломки",
                 font=("Arial", 15, "bold"),
-            ).pack(
-                anchor="w",
-                padx=25,
-                pady=(0, 5),
-            )
+            ).pack(anchor="w", padx=25, pady=(0, 5))
 
             self.edit_photo_label = ctk.CTkLabel(
                 self.request_window,
@@ -795,11 +948,7 @@ class MainWindow(ctk.CTkToplevel):
                 self.request_window,
                 text="Выбрать новую фотографию",
                 command=self.choose_edit_photo,
-            ).pack(
-                anchor="w",
-                padx=25,
-                pady=(0, 5),
-            )
+            ).pack(anchor="w", padx=25, pady=(0, 5))
 
             ctk.CTkButton(
                 self.request_window,
@@ -807,21 +956,13 @@ class MainWindow(ctk.CTkToplevel):
                 command=self.remove_edit_photo,
                 fg_color="#C62828",
                 hover_color="#8E0000",
-            ).pack(
-                anchor="w",
-                padx=25,
-                pady=(0, 15),
-            )
+            ).pack(anchor="w", padx=25, pady=(0, 15))
 
             ctk.CTkButton(
                 self.request_window,
                 text="Сохранить изменения",
                 command=self.save_edit_request,
-            ).pack(
-                fill="x",
-                padx=25,
-                pady=(0, 25),
-            )
+            ).pack(fill="x", padx=25, pady=(0, 25))
 
             self.request_title_entry.focus()
 
@@ -837,10 +978,7 @@ class MainWindow(ctk.CTkToplevel):
             parent=self.request_window,
             title="Выберите новую фотографию",
             filetypes=[
-                (
-                    "Фотографии",
-                    "*.png *.jpg *.jpeg *.webp *.bmp",
-                ),
+                ("Фотографии", "*.png *.jpg *.jpeg *.webp *.bmp"),
                 ("Все файлы", "*.*"),
             ],
         )
@@ -850,11 +988,7 @@ class MainWindow(ctk.CTkToplevel):
 
         photo_path = Path(file_path)
         allowed_extensions = {
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".webp",
-            ".bmp",
+            ".png", ".jpg", ".jpeg", ".webp", ".bmp"
         }
 
         if photo_path.suffix.lower() not in allowed_extensions:
@@ -867,7 +1001,6 @@ class MainWindow(ctk.CTkToplevel):
 
         self.selected_photo_path = str(photo_path)
         self.remove_existing_photo = False
-
         self.edit_photo_label.configure(
             text=f"Новая фотография: {photo_path.name}"
         )
@@ -875,7 +1008,6 @@ class MainWindow(ctk.CTkToplevel):
     def remove_edit_photo(self):
         self.selected_photo_path = None
         self.remove_existing_photo = True
-
         self.edit_photo_label.configure(
             text="Фотография будет удалена после сохранения"
         )
@@ -883,9 +1015,7 @@ class MainWindow(ctk.CTkToplevel):
     def save_edit_request(self):
         title = self.request_title_entry.get().strip()
         description = (
-            self.request_description_entry
-            .get("1.0", "end")
-            .strip()
+            self.request_description_entry.get("1.0", "end").strip()
         )
 
         try:
@@ -896,6 +1026,8 @@ class MainWindow(ctk.CTkToplevel):
                 photo_path=self.selected_photo_path,
                 remove_photo=self.remove_existing_photo,
                 owner_id=self.current_user["id"],
+                category_id=self.get_form_category_id(),
+                priority=self.get_form_priority(),
             )
 
             if not updated:
@@ -929,13 +1061,27 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self.request_window,
             )
 
+    # --------------------------------------------------
+    # Создание заявки
+    # --------------------------------------------------
+
     def open_create_request(self):
+        try:
+            self.load_categories()
+        except Exception as error:
+            messagebox.showerror(
+                "Ошибка категорий",
+                f"Не удалось загрузить категории:\n{error}",
+                parent=self,
+            )
+            return
+
         self.selected_photo_path = None
 
         self.request_window = ctk.CTkToplevel(self)
         self.request_window.title("Новая заявка")
-        self.request_window.geometry("500x700")
-        self.request_window.minsize(500, 650)
+        self.request_window.geometry("500x850")
+        self.request_window.minsize(450, 750)
         self.request_window.transient(self)
         self.request_window.grab_set()
 
@@ -943,20 +1089,12 @@ class MainWindow(ctk.CTkToplevel):
             self.request_window,
             text="Создание заявки",
             font=("Arial", 22, "bold"),
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(25, 20),
-        )
+        ).pack(anchor="w", padx=25, pady=(25, 20))
 
         ctk.CTkLabel(
             self.request_window,
             text="Название заявки",
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 5),
-        )
+        ).pack(anchor="w", padx=25, pady=(0, 5))
 
         self.request_title_entry = ctk.CTkEntry(
             self.request_window,
@@ -968,35 +1106,28 @@ class MainWindow(ctk.CTkToplevel):
             pady=(0, 15),
         )
 
+        self.create_category_controls(
+            self.request_window,
+            priority="normal",
+        )
+
         ctk.CTkLabel(
             self.request_window,
             text="Фотография поломки",
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 5),
-        )
+        ).pack(anchor="w", padx=25, pady=(0, 5))
 
         ctk.CTkButton(
             self.request_window,
             text="Выбрать фотографию",
             command=self.select_photo,
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 5),
-        )
+        ).pack(anchor="w", padx=25, pady=(0, 5))
 
         self.photo_label = ctk.CTkLabel(
             self.request_window,
             text="Фотография не выбрана",
             wraplength=400,
         )
-        self.photo_label.pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 5),
-        )
+        self.photo_label.pack(anchor="w", padx=25, pady=(0, 5))
 
         ctk.CTkButton(
             self.request_window,
@@ -1004,24 +1135,16 @@ class MainWindow(ctk.CTkToplevel):
             command=self.remove_photo,
             fg_color="gray",
             hover_color="#555555",
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 15),
-        )
+        ).pack(anchor="w", padx=25, pady=(0, 15))
 
         ctk.CTkLabel(
             self.request_window,
             text="Описание проблемы",
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 5),
-        )
+        ).pack(anchor="w", padx=25, pady=(0, 5))
 
         self.request_description_entry = ctk.CTkTextbox(
             self.request_window,
-            height=150,
+            height=130,
         )
         self.request_description_entry.pack(
             fill="both",
@@ -1034,11 +1157,7 @@ class MainWindow(ctk.CTkToplevel):
             self.request_window,
             text="Сохранить заявку",
             command=self.save_request,
-        ).pack(
-            fill="x",
-            padx=25,
-            pady=(0, 25),
-        )
+        ).pack(fill="x", padx=25, pady=(0, 25))
 
         self.request_title_entry.focus()
 
@@ -1047,10 +1166,7 @@ class MainWindow(ctk.CTkToplevel):
             parent=self.request_window,
             title="Выберите фотографию поломки",
             filetypes=[
-                (
-                    "Фотографии",
-                    "*.png *.jpg *.jpeg *.webp *.bmp",
-                ),
+                ("Фотографии", "*.png *.jpg *.jpeg *.webp *.bmp"),
                 ("Все файлы", "*.*"),
             ],
         )
@@ -1060,11 +1176,7 @@ class MainWindow(ctk.CTkToplevel):
 
         photo_path = Path(file_path)
         allowed_extensions = {
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".webp",
-            ".bmp",
+            ".png", ".jpg", ".jpeg", ".webp", ".bmp"
         }
 
         if photo_path.suffix.lower() not in allowed_extensions:
@@ -1082,16 +1194,12 @@ class MainWindow(ctk.CTkToplevel):
 
     def remove_photo(self):
         self.selected_photo_path = None
-        self.photo_label.configure(
-            text="Фотография не выбрана"
-        )
+        self.photo_label.configure(text="Фотография не выбрана")
 
     def save_request(self):
         title = self.request_title_entry.get().strip()
         description = (
-            self.request_description_entry
-            .get("1.0", "end")
-            .strip()
+            self.request_description_entry.get("1.0", "end").strip()
         )
 
         try:
@@ -1100,6 +1208,8 @@ class MainWindow(ctk.CTkToplevel):
                 description,
                 photo_path=self.selected_photo_path,
                 owner_id=self.current_user["id"],
+                category_id=self.get_form_category_id(),
+                priority=self.get_form_priority(),
             )
 
             messagebox.showinfo(
@@ -1126,6 +1236,10 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self.request_window,
             )
 
+    # --------------------------------------------------
+    # Настройки и выход
+    # --------------------------------------------------
+
     def show_settings(self):
         self.page_title.configure(text="Настройки")
         self.page_description.configure(
@@ -1148,36 +1262,25 @@ class MainWindow(ctk.CTkToplevel):
             self.settings_frame,
             text="Внешний вид",
             font=("Arial", 20, "bold"),
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(20, 10),
-        )
+        ).pack(anchor="w", padx=20, pady=(20, 10))
 
         ctk.CTkLabel(
             self.settings_frame,
             text="Цветовая тема приложения",
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(0, 15),
-        )
+        ).pack(anchor="w", padx=20, pady=(0, 15))
 
         self.theme_selector = ctk.CTkSegmentedButton(
             self.settings_frame,
             values=["Светлая", "Тёмная"],
             command=self.change_theme,
         )
-        self.theme_selector.pack(
-            anchor="w",
-            padx=20,
-            pady=10,
-        )
+        self.theme_selector.pack(anchor="w", padx=20, pady=10)
 
-        if ctk.get_appearance_mode() == "Light":
-            self.theme_selector.set("Светлая")
-        else:
-            self.theme_selector.set("Тёмная")
+        self.theme_selector.set(
+            "Светлая"
+            if ctk.get_appearance_mode() == "Light"
+            else "Тёмная"
+        )
 
     def logout(self):
         self.withdraw()
