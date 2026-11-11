@@ -111,9 +111,9 @@ class TechnicianWindow(ctk.CTkToplevel):
             sticky="w",
         )
 
-    # --------------------------------------------------
+    
     # Категории
-    # --------------------------------------------------
+    
 
     def load_categories(self):
         self.categories = get_categories()
@@ -132,9 +132,9 @@ class TechnicianWindow(ctk.CTkToplevel):
         if current not in values:
             self.category_filter.set("Все категории")
 
-    # --------------------------------------------------
+    
     # Интерфейс
-    # --------------------------------------------------
+    
 
     def create_widgets(self):
         self.grid_columnconfigure(0, weight=1)
@@ -328,9 +328,9 @@ class TechnicianWindow(ctk.CTkToplevel):
             command=self.logout,
         ).pack(side="right", padx=8, pady=10)
 
-    # --------------------------------------------------
+    
     # Оформление таблицы
-    # --------------------------------------------------
+    
 
     def update_table_theme(self):
         appearance = ctk.get_appearance_mode()
@@ -430,9 +430,9 @@ class TechnicianWindow(ctk.CTkToplevel):
 
         return status_tags.get(normalized, "")
 
-    # --------------------------------------------------
+    
     # Загрузка и фильтрация заявок
-    # --------------------------------------------------
+    
 
     def load_requests(self, show_errors=True):
         try:
@@ -442,6 +442,10 @@ class TechnicianWindow(ctk.CTkToplevel):
                 self.update_table_theme()
 
             requests = get_all_requests()
+            display_numbers = {
+                int(request[0]): index
+                for index, request in enumerate(requests, start=1)
+            }
 
             # Определяем новые заявки по ID до применения фильтров интерфейса.
             current_requests_by_id = {
@@ -449,6 +453,7 @@ class TechnicianWindow(ctk.CTkToplevel):
                 for request in requests
             }
             current_request_ids = set(current_requests_by_id)
+            self._display_numbers = display_numbers
 
             if self._known_request_ids is None:
                 # При первом открытии запоминаем уже существующие заявки.
@@ -528,7 +533,7 @@ class TechnicianWindow(ctk.CTkToplevel):
                     "end",
                     iid=str(request_id),
                     values=(
-                        request_id,
+                        display_numbers[int(request_id)],
                         title,
                         category_name,
                         status,
@@ -545,13 +550,18 @@ class TechnicianWindow(ctk.CTkToplevel):
                     parent=self,
                 )
 
-    # --------------------------------------------------
+    
     # Уведомления о новых заявках
-    # --------------------------------------------------
+    
 
     def show_new_request_notification(self, request):
         """Показывает ненавязчивое всплывающее уведомление о новой заявке."""
         request_id = request[0]
+        display_number = getattr(
+            self,
+            "_display_numbers",
+            {},
+        ).get(int(request_id), request_id)
         title = request[1] or "Без названия"
         author = request[3] or "Неизвестный пользователь"
 
@@ -575,7 +585,7 @@ class TechnicianWindow(ctk.CTkToplevel):
 
             ctk.CTkLabel(
                 frame,
-                text=f"№{request_id} · {title}",
+                text=f"№{display_number} · {title}",
                 wraplength=315,
                 justify="left",
                 anchor="w",
@@ -603,7 +613,7 @@ class TechnicianWindow(ctk.CTkToplevel):
                     notification.destroy()
 
             notification.protocol("WM_DELETE_WINDOW", close_notification)
-            notification.after(7000, close_notification)
+            notification.after(10000, close_notification)
 
             # Звуковой сигнал средствами Tkinter.
             self.bell()
@@ -612,9 +622,9 @@ class TechnicianWindow(ctk.CTkToplevel):
             # Ошибка отображения уведомления не должна ломать обновление заявок.
             pass
 
-    # --------------------------------------------------
+    
     # Автоматическое обновление
-    # --------------------------------------------------
+    
 
     def auto_refresh(self):
         if not self.winfo_exists() or not self.winfo_viewable():
@@ -628,9 +638,9 @@ class TechnicianWindow(ctk.CTkToplevel):
             self.auto_refresh,
         )
 
-    # --------------------------------------------------
+    
     # Настройки
-    # --------------------------------------------------
+    
 
     def show_settings(self):
         settings_window = ctk.CTkToplevel(self)
@@ -673,9 +683,9 @@ class TechnicianWindow(ctk.CTkToplevel):
         ctk.set_appearance_mode(themes[selected_theme])
         self.update_table_theme()
 
-    # --------------------------------------------------
+    
     # Выход из аккаунта
-    # --------------------------------------------------
+    
 
     def logout(self):
         if self._auto_refresh_id is not None:
@@ -700,9 +710,9 @@ class TechnicianWindow(ctk.CTkToplevel):
             self.master.deiconify()
             self.master.lift()
 
-    # --------------------------------------------------
+    
     # Выбор заявки
-    # --------------------------------------------------
+    
 
     def get_selected_request_id(self):
         selected_items = self.tree.selection()
@@ -717,9 +727,9 @@ class TechnicianWindow(ctk.CTkToplevel):
 
         return int(selected_items[0])
 
-    # --------------------------------------------------
+    
     # Подробности заявки и фотография
-    # --------------------------------------------------
+    
 
     def show_request_details(self):
         request_id = self.get_selected_request_id()
@@ -870,9 +880,9 @@ class TechnicianWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
-    # --------------------------------------------------
+    
     # Полноразмерный просмотр фотографии
-    # --------------------------------------------------
+    
 
     def show_request_photo(self, request_id: int):
         try:
@@ -926,9 +936,9 @@ class TechnicianWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
-    # --------------------------------------------------
+    
     # Изменение статуса
-    # --------------------------------------------------
+    
 
     def change_request_status(self):
         request_id = self.get_selected_request_id()
@@ -1026,9 +1036,9 @@ class TechnicianWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
-    # --------------------------------------------------
+    
     # Удаление заявки
-    # --------------------------------------------------
+    
 
     def delete_selected_request(self):
         request_id = self.get_selected_request_id()

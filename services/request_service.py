@@ -139,12 +139,12 @@ def get_all_requests(owner_id=None):
                     WHERE rr.owner_id = %s
                 """
                 cursor.execute(
-                    query + " ORDER BY rr.id ASC;",
+                    query + " ORDER BY rr.created_at ASC, rr.id ASC;",
                     (owner_id,),
                 )
             else:
                 cursor.execute(
-                    query + " ORDER BY rr.id ASC;"
+                    query + " ORDER BY rr.created_at ASC, rr.id ASC;"
                 )
 
             rows = cursor.fetchall()

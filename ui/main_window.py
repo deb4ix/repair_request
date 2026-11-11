@@ -59,9 +59,9 @@ class MainWindow(ctk.CTkToplevel):
         self.show_requests()
         self.load_requests()
 
-    # --------------------------------------------------
+    
     # Логотип приложения
-    # --------------------------------------------------
+    
 
     def load_logo(self):
         project_root = Path(__file__).resolve().parent.parent
@@ -94,9 +94,9 @@ class MainWindow(ctk.CTkToplevel):
             pady=(20, 5),
         )
 
-    # --------------------------------------------------
+    
     # Категории
-    # --------------------------------------------------
+    
 
     def load_categories(self):
         categories = get_categories()
@@ -141,9 +141,9 @@ class MainWindow(ctk.CTkToplevel):
             self.category_filter.set("Все категории")
             raise error
 
-    # --------------------------------------------------
+    
     # Оформление таблицы
-    # --------------------------------------------------
+    
 
     def update_table_theme(self):
         style = ttk.Style()
@@ -233,9 +233,9 @@ class MainWindow(ctk.CTkToplevel):
 
         return status_tags.get(normalized, "")
 
-    # --------------------------------------------------
+    
     # Создание интерфейса
-    # --------------------------------------------------
+    
 
     def create_widgets(self):
         self.sidebar = ctk.CTkFrame(self, width=220)
@@ -466,9 +466,9 @@ class MainWindow(ctk.CTkToplevel):
             lambda event: self.show_request_details(),
         )
 
-    # --------------------------------------------------
+    
     # Страницы
-    # --------------------------------------------------
+    
 
     def show_requests(self):
         self.page_title.configure(text="Заявки на ремонт")
@@ -487,13 +487,16 @@ class MainWindow(ctk.CTkToplevel):
                 pady=(0, 30),
             )
 
-    # --------------------------------------------------
+    
     # Загрузка и фильтрация заявок
-    # --------------------------------------------------
 
     def load_requests(self):
         try:
             requests = get_all_requests()
+            display_numbers = {
+                int(request[0]): index
+                for index, request in enumerate(requests, start=1)
+            }
 
             self.update_category_filter()
 
@@ -562,7 +565,7 @@ class MainWindow(ctk.CTkToplevel):
                     "end",
                     iid=str(request_id),
                     values=(
-                        request_id,
+                        display_numbers[int(request_id)],
                         title,
                         category_name,
                         status,
@@ -591,9 +594,9 @@ class MainWindow(ctk.CTkToplevel):
 
         return int(selected_items[0])
 
-    # --------------------------------------------------
+    
     # Подробности заявки
-    # --------------------------------------------------
+    
 
     def show_request_details(self):
         request_id = self.get_selected_request_id()
@@ -696,9 +699,9 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
-    # --------------------------------------------------
+    
     # Фотографии
-    # --------------------------------------------------
+    
 
     def show_request_photo(self, request_id):
         try:
@@ -751,9 +754,9 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
-    # --------------------------------------------------
+    
     # Удаление заявки
-    # --------------------------------------------------
+    
 
     def delete_selected_request(self):
         request_id = self.get_selected_request_id()
@@ -804,9 +807,9 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self,
             )
 
-    # --------------------------------------------------
+    
     # Поля категории и приоритета
-    # --------------------------------------------------
+    
 
     def create_category_controls(
         self,
@@ -875,10 +878,7 @@ class MainWindow(ctk.CTkToplevel):
 
         return priority
 
-    # --------------------------------------------------
     # Редактирование заявки
-    # --------------------------------------------------
-
     def open_edit_request(self):
         request_id = self.get_selected_request_id()
 
@@ -1107,10 +1107,8 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self.request_window,
             )
 
-    # --------------------------------------------------
+    
     # Создание заявки
-    # --------------------------------------------------
-
     def open_create_request(self):
         try:
             self.load_categories()
@@ -1282,10 +1280,7 @@ class MainWindow(ctk.CTkToplevel):
                 parent=self.request_window,
             )
 
-    # --------------------------------------------------
     # Настройки и выход
-    # --------------------------------------------------
-
     def show_settings(self):
         self.page_title.configure(text="Настройки")
         self.page_description.configure(
@@ -1343,4 +1338,3 @@ class MainWindow(ctk.CTkToplevel):
 
         ctk.set_appearance_mode(themes[selected_theme])
         self.update_table_theme()
-
