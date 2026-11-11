@@ -76,7 +76,7 @@ class MainWindow(ctk.CTkToplevel):
             return
 
         image = Image.open(logo_path).convert("RGBA")
-        image.thumbnail((65, 65), Image.Resampling.LANCZOS)
+        image.thumbnail((165, 165), Image.Resampling.LANCZOS)
 
         self.logo_image = ctk.CTkImage(
             light_image=image,
@@ -301,12 +301,12 @@ class MainWindow(ctk.CTkToplevel):
         self.page_title = ctk.CTkLabel(
             self.content,
             text="Заявки на ремонт",
-            font=("Arial", 26, "bold"),
+            font=ctk.CTkFont(size=24, weight="bold"),
         )
         self.page_title.pack(
             anchor="w",
             padx=30,
-            pady=(25, 5),
+            pady=(20, 5),
         )
 
         self.page_description = ctk.CTkLabel(
@@ -493,9 +493,7 @@ class MainWindow(ctk.CTkToplevel):
 
     def load_requests(self):
         try:
-            requests = get_all_requests(
-                owner_id=self.current_user["id"]
-            )
+            requests = get_all_requests()
 
             self.update_category_filter()
 
@@ -1345,3 +1343,4 @@ class MainWindow(ctk.CTkToplevel):
 
         ctk.set_appearance_mode(themes[selected_theme])
         self.update_table_theme()
+

@@ -64,6 +64,11 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.categories = []
         self.category_names = []
 
+        # ID заявок, которые уже были загружены.
+        # Первый запуск формирует базовый список без уведомлений.
+        self._known_request_ids = None
+        self._notification_windows = []
+
         self.create_widgets()
         self.load_requests()
 
@@ -71,10 +76,6 @@ class TechnicianWindow(ctk.CTkToplevel):
             5000,
             self.auto_refresh,
         )
-
-    # --------------------------------------------------
-    # Логотип приложения
-    # --------------------------------------------------
 
     def load_logo(self):
         project_root = Path(__file__).resolve().parent.parent
@@ -89,7 +90,7 @@ class TechnicianWindow(ctk.CTkToplevel):
             return
 
         image = Image.open(logo_path).convert("RGBA")
-        image.thumbnail((65, 65), Image.Resampling.LANCZOS)
+        image.thumbnail((165, 165), Image.Resampling.LANCZOS)
 
         self.logo_image = ctk.CTkImage(
             light_image=image,
@@ -140,19 +141,6 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.grid_rowconfigure(2, weight=1)
 
         self.load_logo()
-
-        self.page_title = ctk.CTkLabel(
-            self,
-            text="Заявки на ремонт",
-            font=ctk.CTkFont(size=24, weight="bold"),
-        )
-        self.page_title.grid(
-            row=0,
-            column=0,
-            padx=100,
-            pady=(20, 10),
-            sticky="w",
-        )
 
         filter_frame = ctk.CTkFrame(self)
         filter_frame.grid(
@@ -454,6 +442,26 @@ class TechnicianWindow(ctk.CTkToplevel):
                 self.update_table_theme()
 
             requests = get_all_requests()
+
+            # Определяем новые заявки по ID до применения фильтров интерфейса.
+            current_requests_by_id = {
+                int(request[0]): request
+                for request in requests
+            }
+            current_request_ids = set(current_requests_by_id)
+
+            if self._known_request_ids is None:
+                # При первом открытии запоминаем уже существующие заявки.
+                self._known_request_ids = current_request_ids
+            else:
+                new_request_ids = current_request_ids - self._known_request_ids
+                self._known_request_ids = current_request_ids
+
+                for new_request_id in sorted(new_request_ids):
+                    self.show_new_request_notification(
+                        current_requests_by_id[new_request_id]
+                    )
+
             self.update_category_filter()
 
             search_text = (
@@ -538,6 +546,73 @@ class TechnicianWindow(ctk.CTkToplevel):
                 )
 
     # --------------------------------------------------
+    # Уведомления о новых заявках
+    # --------------------------------------------------
+
+    def show_new_request_notification(self, request):
+        """Показывает ненавязчивое всплывающее уведомление о новой заявке."""
+        request_id = request[0]
+        title = request[1] or "Без названия"
+        author = request[3] or "Неизвестный пользователь"
+
+        try:
+            notification = ctk.CTkToplevel(self)
+            notification.title("Новая заявка")
+            notification.geometry("360x145")
+            notification.resizable(False, False)
+            notification.transient(self)
+            notification.attributes("-topmost", True)
+
+            frame = ctk.CTkFrame(notification, corner_radius=12)
+            frame.pack(fill="both", expand=True, padx=8, pady=8)
+
+            ctk.CTkLabel(
+                frame,
+                text="Поступила новая заявка",
+                font=ctk.CTkFont(size=16, weight="bold"),
+                anchor="w",
+            ).pack(fill="x", padx=14, pady=(12, 4))
+
+            ctk.CTkLabel(
+                frame,
+                text=f"№{request_id} · {title}",
+                wraplength=315,
+                justify="left",
+                anchor="w",
+            ).pack(fill="x", padx=14, pady=2)
+
+            ctk.CTkLabel(
+                frame,
+                text=f"Отправитель: {author}",
+                text_color="gray",
+                anchor="w",
+            ).pack(fill="x", padx=14, pady=(2, 10))
+
+            # Размещаем уведомление в правом верхнем углу окна приложения.
+            notification.update_idletasks()
+            x = self.winfo_rootx() + self.winfo_width() - 380
+            y = self.winfo_rooty() + 20
+            notification.geometry(f"360x145+{max(x, 0)}+{max(y, 0)}")
+
+            self._notification_windows.append(notification)
+
+            def close_notification():
+                if notification in self._notification_windows:
+                    self._notification_windows.remove(notification)
+                if notification.winfo_exists():
+                    notification.destroy()
+
+            notification.protocol("WM_DELETE_WINDOW", close_notification)
+            notification.after(7000, close_notification)
+
+            # Звуковой сигнал средствами Tkinter.
+            self.bell()
+
+        except Exception:
+            # Ошибка отображения уведомления не должна ломать обновление заявок.
+            pass
+
+    # --------------------------------------------------
     # Автоматическое обновление
     # --------------------------------------------------
 
@@ -610,6 +685,14 @@ class TechnicianWindow(ctk.CTkToplevel):
                 pass
 
             self._auto_refresh_id = None
+
+        for notification in self._notification_windows[:]:
+            try:
+                if notification.winfo_exists():
+                    notification.destroy()
+            except Exception:
+                pass
+        self._notification_windows.clear()
 
         self.withdraw()
 
@@ -985,3 +1068,4 @@ class TechnicianWindow(ctk.CTkToplevel):
                 f"Не удалось удалить заявку:\n{error}",
                 parent=self,
             )
+
