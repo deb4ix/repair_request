@@ -96,7 +96,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
         self.logo_image = ctk.CTkImage(
             light_image=image,
             dark_image=image,
-            size=(140, 140),
+            size=image.size
         )
 
         self.logo_label = ctk.CTkLabel(
@@ -558,16 +558,18 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
     
 
     def auto_refresh(self):
-        if not self.winfo_exists() or not self.winfo_viewable():
-            self._auto_refresh_id = None
+        """Проверяет новые заявки каждые 5 секунд без остановки при скрытии окна."""
+        self._auto_refresh_id = None
+        if not self.winfo_exists():
             return
 
-        self.load_requests(show_errors=False)
-
-        self._auto_refresh_id = self.after(
-            5000,
-            self.auto_refresh,
-        )
+        # Планируем следующий запуск до загрузки: ошибка не отключит таймер.
+        self._auto_refresh_id = self.after(5000, self.auto_refresh)
+        try:
+            self.load_requests(show_errors=False)
+        except Exception as error:
+            # Фоновый загрузчик обычно сам обрабатывает ошибки соединения.
+            print(f"Ошибка автоматического обновления заявок: {error}")
 
     
     # Настройки
