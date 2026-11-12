@@ -1,5 +1,7 @@
 
 from pathlib import Path
+from time import monotonic
+from threading import Lock
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -85,8 +87,19 @@ def format_datetime(value, timezone_name=None):
     )
 
 
+_categories_cache = None
+_categories_cached_at = 0.0
+_categories_lock = Lock()
+_CATEGORIES_TTL_SECONDS = 300
+
+
 def get_categories():
     """Возвращает список категорий в формате (id, название)."""
+    global _categories_cache, _categories_cached_at
+    with _categories_lock:
+        if (_categories_cache is not None and
+                monotonic() - _categories_cached_at < _CATEGORIES_TTL_SECONDS):
+            return list(_categories_cache)
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -96,7 +109,20 @@ def get_categories():
                 ORDER BY id ASC;
                 """
             )
-            return cursor.fetchall()
+            categories = cursor.fetchall()
+
+    with _categories_lock:
+        _categories_cache = tuple(categories)
+        _categories_cached_at = monotonic()
+    return list(categories)
+
+
+def invalidate_categories_cache():
+    """Сбрасывает кэш после изменения справочника категорий."""
+    global _categories_cache, _categories_cached_at
+    with _categories_lock:
+        _categories_cache = None
+        _categories_cached_at = 0.0
 
 
 def get_all_requests(owner_id=None):
@@ -238,14 +264,9 @@ def get_request_by_id(request_id: int, owner_id=None):
     }
 
 
-def update_request_status(
-    request_id: int,
-    new_status: str,
-) -> bool:
-    """Изменяет статус заявки."""
-
+def update_request_status(request_id: int, new_status: str) -> bool:
+    """Обновляет статус одним UPDATE; запрещает возвращение к «Новая»."""
     new_status = STATUS_VALUES.get(new_status, new_status)
-
     if new_status not in STATUS_NAMES:
         raise ValueError("Указан неизвестный статус заявки.")
 
@@ -253,43 +274,32 @@ def update_request_status(
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT status
-                FROM repair_requests
-                WHERE id = %s
-                FOR UPDATE;
-                """,
-                (request_id,),
-            )
-
-            request = cursor.fetchone()
-
-            if request is None:
-                return False
-
-            current_status = request[0]
-
-            if current_status != "new" and new_status == "new":
-                raise ValueError(
-                    "Нельзя вернуть заявку в статус "
-                    "«Новая» после изменения её первоначального статуса."
-                )
-
-            cursor.execute(
-                """
                 UPDATE repair_requests
-                SET
-                    status = %s,
+                SET status = %s,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = %s
+                  AND (status = 'new' OR %s <> 'new')
                 RETURNING id;
                 """,
-                (new_status, request_id),
+                (new_status, request_id, new_status),
             )
+            if cursor.fetchone() is not None:
+                return True
 
-            updated_request = cursor.fetchone()
-
-    return updated_request is not None
-
+            # Только при неудачном UPDATE выясняем причину.
+            cursor.execute(
+                "SELECT status FROM repair_requests WHERE id = %s;",
+                (request_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return False
+            if new_status == "new" and row[0] != "new":
+                raise ValueError(
+                    "Нельзя вернуть заявку в статус «Новая» "
+                    "после изменения её первоначального статуса."
+                )
+            return False
 
 def delete_request(request_id: int, owner_id=None) -> bool:
     """Удаляет заявку."""

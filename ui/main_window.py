@@ -1,5 +1,5 @@
-
 import io
+from ui.async_requests import AsyncRequestLoader
 from pathlib import Path
 
 import customtkinter as ctk
@@ -37,7 +37,7 @@ STATUS_FILTER_VALUES = [
 ]
 
 
-class MainWindow(ctk.CTkToplevel):
+class MainWindow(AsyncRequestLoader, ctk.CTkToplevel):
     def __init__(self, user, master=None):
         super().__init__(master)
 
@@ -54,10 +54,11 @@ class MainWindow(ctk.CTkToplevel):
         self.category_name_to_id = {}
         self.category_id_to_name = {}
 
+        self.init_async_loader()
         self.create_widgets()
         self.update_table_theme()
         self.show_requests()
-        self.load_requests()
+        self.after(20, self.load_requests)
 
     
     # Логотип приложения
@@ -99,6 +100,8 @@ class MainWindow(ctk.CTkToplevel):
     
 
     def load_categories(self):
+        if self.categories:
+            return self.categories
         categories = get_categories()
 
         if not categories:
@@ -123,27 +126,12 @@ class MainWindow(ctk.CTkToplevel):
         return [name for _, name in self.categories]
 
     def update_category_filter(self):
-        """Обновляет значения фильтра категорий."""
-        try:
-            self.load_categories()
-            values = ["Все категории"] + self.get_category_values()
-
-            current = self.category_filter.get()
-            self.category_filter.configure(values=values)
-
-            if current not in values:
-                self.category_filter.set("Все категории")
-
-        except Exception as error:
-            self.category_filter.configure(
-                values=["Все категории"]
-            )
+        """Обновляет список категорий из кэша, без сетевого запроса."""
+        values = ["Все категории"] + self.get_category_values()
+        current = self.category_filter.get()
+        self.category_filter.configure(values=values)
+        if current not in values:
             self.category_filter.set("Все категории")
-            raise error
-
-    
-    # Оформление таблицы
-    
 
     def update_table_theme(self):
         style = ttk.Style()
@@ -344,13 +332,13 @@ class MainWindow(ctk.CTkToplevel):
         )
         self.search_entry.bind(
             "<KeyRelease>",
-            lambda event: self.load_requests(),
+            lambda event: self.apply_filters(),
         )
 
         self.status_filter = ctk.CTkComboBox(
             search_frame,
             values=STATUS_FILTER_VALUES,
-            command=lambda value: self.load_requests(),
+            command=lambda value: self.apply_filters(),
             width=150,
             state="readonly",
         )
@@ -364,7 +352,7 @@ class MainWindow(ctk.CTkToplevel):
         self.category_filter = ctk.CTkComboBox(
             search_frame,
             values=["Все категории"],
-            command=lambda value: self.load_requests(),
+            command=lambda value: self.apply_filters(),
             width=210,
             state="readonly",
         )
@@ -490,96 +478,47 @@ class MainWindow(ctk.CTkToplevel):
     
     # Загрузка и фильтрация заявок
 
-    def load_requests(self):
-        try:
-            requests = get_all_requests()
-            display_numbers = {
-                int(request[0]): index
-                for index, request in enumerate(requests, start=1)
-            }
+    def apply_filters(self):
+        """Мгновенная фильтрация списка в памяти."""
+        requests = self._cached_requests
+        display_numbers = {
+            int(request[0]): index
+            for index, request in enumerate(requests, start=1)
+        }
+        search_text = self.search_entry.get().strip().casefold()
+        selected_status = self.status_filter.get().strip().casefold()
+        selected_category = self.category_filter.get()
+        status_codes = {
+            "новая": "new", "в работе": "in_progress",
+            "завершена": "completed", "отменена": "cancelled",
+        }
+        normalized_status = status_codes.get(selected_status, selected_status)
 
-            self.update_category_filter()
-
-            search_text = (
-                self.search_entry.get().strip().casefold()
+        selected = self.request_table.selection()
+        selected_id = selected[0] if selected else None
+        self.request_table.delete(*self.request_table.get_children())
+        for request in requests:
+            (request_id, title, status, author, category_id,
+             category_name, priority) = request
+            title = title or ""
+            status = status or ""
+            author = author or "Неизвестный пользователь"
+            category_name = category_name or "Не указана"
+            if search_text and search_text not in title.casefold():
+                continue
+            if selected_status != "все статусы" and status.casefold() != normalized_status:
+                continue
+            if selected_category != "Все категории" and category_name != selected_category:
+                continue
+            status_tag = self.get_status_tag(status)
+            self.request_table.insert(
+                "", "end", iid=str(request_id),
+                values=(display_numbers[int(request_id)], title,
+                        category_name, status, author),
+                tags=(status_tag,) if status_tag else (),
             )
-            selected_status = (
-                self.status_filter.get().strip().casefold()
-            )
-            selected_category = self.category_filter.get()
-
-            for item in self.request_table.get_children():
-                self.request_table.delete(item)
-
-            for request in requests:
-                (
-                    request_id,
-                    title,
-                    status,
-                    author,
-                    category_id,
-                    category_name,
-                    priority,
-                ) = request
-
-                title = title or ""
-                status = status or ""
-                author = author or "Неизвестный пользователь"
-                category_name = category_name or "Не указана"
-
-                if (
-                    search_text
-                    and search_text not in title.casefold()
-                ):
-                    continue
-
-                status_codes = {
-                    "новая": "new",
-                    "в работе": "in_progress",
-                    "завершена": "completed",
-                    "отменена": "cancelled",
-                }
-
-                normalized_status = status_codes.get(
-                    selected_status,
-                    selected_status,
-                )
-
-                if (
-                    selected_status != "все статусы"
-                    and status.casefold() != normalized_status
-                ):
-                    continue
-
-                if (
-                    selected_category != "Все категории"
-                    and category_name != selected_category
-                ):
-                    continue
-
-                status_tag = self.get_status_tag(status)
-                tags = (status_tag,) if status_tag else ()
-
-                self.request_table.insert(
-                    "",
-                    "end",
-                    iid=str(request_id),
-                    values=(
-                        display_numbers[int(request_id)],
-                        title,
-                        category_name,
-                        status,
-                        author,
-                    ),
-                    tags=tags,
-                )
-
-        except Exception as error:
-            messagebox.showerror(
-                "Ошибка загрузки",
-                f"Не удалось загрузить заявки:\n{error}",
-                parent=self,
-            )
+        if selected_id and self.request_table.exists(selected_id):
+            self.request_table.selection_set(selected_id)
 
     def get_selected_request_id(self):
         selected_items = self.request_table.selection()
@@ -1324,7 +1263,7 @@ class MainWindow(ctk.CTkToplevel):
         )
 
     def logout(self):
-        self.withdraw()
+        self.destroy()
 
         if self.master is not None and self.master.winfo_exists():
             self.master.deiconify()

@@ -1,5 +1,5 @@
-
 import io
+from ui.async_requests import AsyncRequestLoader
 from pathlib import Path
 from datetime import datetime
 
@@ -45,7 +45,7 @@ def format_datetime(value):
     return str(value)
 
 
-class TechnicianWindow(ctk.CTkToplevel):
+class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
 
     def __init__(self, user, master=None):
         super().__init__(master)
@@ -69,8 +69,9 @@ class TechnicianWindow(ctk.CTkToplevel):
         self._known_request_ids = None
         self._notification_windows = []
 
+        self.init_async_loader()
         self.create_widgets()
-        self.load_requests()
+        self.after(20, self.load_requests)
 
         self._auto_refresh_id = self.after(
             5000,
@@ -95,7 +96,7 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.logo_image = ctk.CTkImage(
             light_image=image,
             dark_image=image,
-            size=image.size,
+            size=(140, 140),
         )
 
         self.logo_label = ctk.CTkLabel(
@@ -122,19 +123,12 @@ class TechnicianWindow(ctk.CTkToplevel):
         ]
 
     def update_category_filter(self):
-        self.load_categories()
-
+        """Обновляет фильтр категорий только из кэша."""
         values = ["Все категории"] + self.category_names
         current = self.category_filter.get()
-
         self.category_filter.configure(values=values)
-
         if current not in values:
             self.category_filter.set("Все категории")
-
-    
-    # Интерфейс
-    
 
     def create_widgets(self):
         self.grid_columnconfigure(0, weight=1)
@@ -165,15 +159,13 @@ class TechnicianWindow(ctk.CTkToplevel):
         )
         self.search_entry.bind(
             "<KeyRelease>",
-            lambda event: self.load_requests(show_errors=False),
+            lambda event: self.apply_filters(),
         )
 
         self.status_filter = ctk.CTkOptionMenu(
             filter_frame,
             values=STATUS_FILTER_VALUES,
-            command=lambda value: self.load_requests(
-                show_errors=False
-            ),
+            command=lambda value: self.apply_filters(),
             width=150,
         )
         self.status_filter.set("Все статусы")
@@ -187,9 +179,7 @@ class TechnicianWindow(ctk.CTkToplevel):
         self.category_filter = ctk.CTkOptionMenu(
             filter_frame,
             values=["Все категории"],
-            command=lambda value: self.load_requests(
-                show_errors=False
-            ),
+            command=lambda value: self.apply_filters(),
             width=210,
         )
         self.category_filter.set("Все категории")
@@ -434,125 +424,66 @@ class TechnicianWindow(ctk.CTkToplevel):
     # Загрузка и фильтрация заявок
     
 
-    def load_requests(self, show_errors=True):
-        try:
-            current_theme = ctk.get_appearance_mode()
-
-            if current_theme != self._current_table_theme:
-                self.update_table_theme()
-
-            requests = get_all_requests()
-            display_numbers = {
-                int(request[0]): index
-                for index, request in enumerate(requests, start=1)
-            }
-
-            # Определяем новые заявки по ID до применения фильтров интерфейса.
-            current_requests_by_id = {
-                int(request[0]): request
-                for request in requests
-            }
-            current_request_ids = set(current_requests_by_id)
-            self._display_numbers = display_numbers
-
-            if self._known_request_ids is None:
-                # При первом открытии запоминаем уже существующие заявки.
-                self._known_request_ids = current_request_ids
-            else:
-                new_request_ids = current_request_ids - self._known_request_ids
-                self._known_request_ids = current_request_ids
-
-                for new_request_id in sorted(new_request_ids):
-                    self.show_new_request_notification(
-                        current_requests_by_id[new_request_id]
-                    )
-
-            self.update_category_filter()
-
-            search_text = (
-                self.search_entry.get().strip().casefold()
-            )
-            selected_status = (
-                self.status_filter.get().strip().casefold()
-            )
-            selected_category = self.category_filter.get()
-
-            status_codes = {
-                "новая": "new",
-                "в работе": "in_progress",
-                "завершена": "completed",
-                "отменена": "cancelled",
-            }
-
-            normalized_status = status_codes.get(
-                selected_status,
-                selected_status,
-            )
-
-            for item in self.tree.get_children():
-                self.tree.delete(item)
-
-            for request in requests:
-                (
-                    request_id,
-                    title,
-                    status,
-                    author,
-                    category_id,
-                    category_name,
-                    priority,
-                ) = request
-
-                title = title or ""
-                status = status or ""
-                author = author or "Неизвестный пользователь"
-                category_name = category_name or "Не указана"
-
-                if (
-                    search_text
-                    and search_text not in title.casefold()
-                ):
-                    continue
-
-                if (
-                    selected_status != "все статусы"
-                    and status.casefold() != normalized_status
-                ):
-                    continue
-
-                if (
-                    selected_category != "Все категории"
-                    and category_name != selected_category
-                ):
-                    continue
-
-                status_tag = self.get_status_tag(status)
-
-                self.tree.insert(
-                    "",
-                    "end",
-                    iid=str(request_id),
-                    values=(
-                        display_numbers[int(request_id)],
-                        title,
-                        category_name,
-                        status,
-                        author,
-                    ),
-                    tags=(status_tag,) if status_tag else (),
+    def _on_requests_received(self, requests):
+        current_requests_by_id = {
+            int(request[0]): request for request in requests
+        }
+        current_request_ids = set(current_requests_by_id)
+        self._display_numbers = {
+            int(request[0]): index
+            for index, request in enumerate(requests, start=1)
+        }
+        if self._known_request_ids is None:
+            self._known_request_ids = current_request_ids
+        else:
+            new_request_ids = current_request_ids - self._known_request_ids
+            self._known_request_ids = current_request_ids
+            for new_request_id in sorted(new_request_ids):
+                self.show_new_request_notification(
+                    current_requests_by_id[new_request_id]
                 )
 
-        except Exception as error:
-            if show_errors:
-                messagebox.showerror(
-                    "Ошибка",
-                    f"Не удалось загрузить заявки:\n{error}",
-                    parent=self,
-                )
+    def apply_filters(self):
+        """Фильтрует уже загруженные данные без обращения к Neon."""
+        current_theme = ctk.get_appearance_mode()
+        if current_theme != self._current_table_theme:
+            self.update_table_theme()
 
-    
-    # Уведомления о новых заявках
-    
+        requests = self._cached_requests
+        search_text = self.search_entry.get().strip().casefold()
+        selected_status = self.status_filter.get().strip().casefold()
+        selected_category = self.category_filter.get()
+        status_codes = {
+            "новая": "new", "в работе": "in_progress",
+            "завершена": "completed", "отменена": "cancelled",
+        }
+        normalized_status = status_codes.get(selected_status, selected_status)
+
+        selected = self.tree.selection()
+        selected_id = selected[0] if selected else None
+        self.tree.delete(*self.tree.get_children())
+        for request in requests:
+            (request_id, title, status, author, category_id,
+             category_name, priority) = request
+            title = title or ""
+            status = status or ""
+            author = author or "Неизвестный пользователь"
+            category_name = category_name or "Не указана"
+            if search_text and search_text not in title.casefold():
+                continue
+            if selected_status != "все статусы" and status.casefold() != normalized_status:
+                continue
+            if selected_category != "Все категории" and category_name != selected_category:
+                continue
+            status_tag = self.get_status_tag(status)
+            self.tree.insert(
+                "", "end", iid=str(request_id),
+                values=(self._display_numbers[int(request_id)],
+                        title, category_name, status, author),
+                tags=(status_tag,) if status_tag else (),
+            )
+        if selected_id and self.tree.exists(selected_id):
+            self.tree.selection_set(selected_id)
 
     def show_new_request_notification(self, request):
         """Показывает ненавязчивое всплывающее уведомление о новой заявке."""
@@ -704,7 +635,7 @@ class TechnicianWindow(ctk.CTkToplevel):
                 pass
         self._notification_windows.clear()
 
-        self.withdraw()
+        self.destroy()
 
         if self.master is not None and self.master.winfo_exists():
             self.master.deiconify()
@@ -1078,4 +1009,3 @@ class TechnicianWindow(ctk.CTkToplevel):
                 f"Не удалось удалить заявку:\n{error}",
                 parent=self,
             )
-
