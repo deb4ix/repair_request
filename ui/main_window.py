@@ -1,6 +1,8 @@
 import io
 from ui.async_requests import AsyncRequestLoader
 from ui.communication_ui import CommunicationMixin
+from ui.workflow_ui import WorkflowMixin
+from services.settings_service import apply_saved_theme, save_theme
 from pathlib import Path
 
 import customtkinter as ctk
@@ -34,13 +36,15 @@ STATUS_FILTER_VALUES = [
     "Новая",
     "В работе",
     "Завершена",
+    "Ожидает подтверждения",
     "Отменена",
 ]
 
 
-class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
+class MainWindow(WorkflowMixin, CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
     def __init__(self, user, master=None):
         super().__init__(master)
+        apply_saved_theme()
 
         self.current_user = user
         self.title(f"Учёт заявок на ремонт — {user['username']}")
@@ -151,6 +155,7 @@ class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 "new": ("#183B2A", "#B7F7CC"),
                 "in_progress": ("#193653", "#BFDBFE"),
                 "completed": ("#383838", "#E5E7EB"),
+                "pending_confirmation": ("#534319", "#FFF1AF"),
                 "cancelled": ("#4A2222", "#FECACA"),
             }
         else:
@@ -164,6 +169,7 @@ class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 "new": ("#D9F2DF", "#14532D"),
                 "in_progress": ("#DCEBFA", "#1E40AF"),
                 "completed": ("#E5E7EB", "#374151"),
+                "pending_confirmation": ("#FFF2BD", "#785600"),
                 "cancelled": ("#FADBD8", "#991B1B"),
             }
 
@@ -216,6 +222,7 @@ class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             "завершена": "completed",
             "завершено": "completed",
             "completed": "completed",
+            "ожидает подтверждения": "pending_confirmation",
             "отменена": "cancelled",
             "отменено": "cancelled",
             "cancelled": "cancelled",
@@ -376,43 +383,28 @@ class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             pady=10,
         )
 
-        ctk.CTkButton(
-            self.request_actions,
-            text="Добавить заявку",
-            command=self.open_create_request,
-        ).pack(side="left", padx=(0, 10))
+        # Два ряда действий: чат доступен клиенту и не обрезается в окне.
+        for column in range(4):
+            self.request_actions.grid_columnconfigure(column, weight=1, uniform="client_actions")
 
-        ctk.CTkButton(
-            self.request_actions,
-            text="Обновить",
-            command=self.load_requests,
-            fg_color="gray",
-            hover_color="#555555",
-        ).pack(side="left")
+        def action_button(text, command, row, column, **kwargs):
+            button = ctk.CTkButton(
+                self.request_actions, text=text, command=command, width=1, **kwargs
+            )
+            button.grid(row=row, column=column, padx=5, pady=5, sticky="ew")
+            return button
 
-        ctk.CTkButton(
-            self.request_actions,
-            text="Подробнее",
-            command=self.show_request_details,
-        ).pack(side="left", padx=(10, 0))
-
-        ctk.CTkButton(
-            self.request_actions,
-            text="Удалить заявку",
-            command=self.delete_selected_request,
-            fg_color="#C62828",
-            hover_color="#8E0000",
-        ).pack(side="left", padx=(10, 0))
-
-        ctk.CTkButton(
-            self.request_actions,
-            text="Редактировать",
-            command=self.open_edit_request,
-        ).pack(side="left", padx=(10, 0))
-
-        self._comm_button = ctk.CTkButton(self.request_actions,text='Уведомления (0)',command=self.open_notifications)
-        self._comm_button.pack(side='left',padx=(10,0))
-        ctk.CTkButton(self.request_actions,text='Чат',command=self.open_request_chat).pack(side='left',padx=(10,0))
+        action_button("Добавить заявку", self.open_create_request, 0, 0)
+        action_button("Обновить", self.load_requests, 0, 1,
+                      fg_color="gray", hover_color="#555555")
+        action_button("Подробнее", self.show_request_details, 0, 2)
+        action_button("Редактировать", self.open_edit_request, 0, 3)
+        self._comm_button = action_button(
+            "Уведомления (0)", self.open_notifications, 1, 0
+        )
+        action_button("Чат", self.open_request_chat, 1, 1)
+        action_button("Удалить заявку", self.delete_selected_request, 1, 2,
+                      fg_color="#C62828", hover_color="#8E0000")
 
         self.request_table = ttk.Treeview(
             self.requests_frame,
@@ -497,7 +489,7 @@ class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
         selected_category = self.category_filter.get()
         status_codes = {
             "новая": "new", "в работе": "in_progress",
-            "завершена": "completed", "отменена": "cancelled",
+            "завершена": "completed", "ожидает подтверждения": "pending_confirmation", "отменена": "cancelled",
         }
         normalized_status = status_codes.get(selected_status, selected_status)
 
@@ -1278,6 +1270,11 @@ class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             self._client_refresh_id = self.after(5000, self._client_auto_refresh)
 
     def logout(self):
+        if getattr(self, "_client_refresh_id", None) is not None:
+            try:
+                self.after_cancel(self._client_refresh_id)
+            except Exception:
+                pass
         self.stop_communication()
         self.destroy()
 
@@ -1292,4 +1289,6 @@ class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
         }
 
         ctk.set_appearance_mode(themes[selected_theme])
+        save_theme(themes[selected_theme])
         self.update_table_theme()
+

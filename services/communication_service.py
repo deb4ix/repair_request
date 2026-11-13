@@ -1,3 +1,4 @@
+"""Сообщения, события и уведомления. Запустите migration_communication.sql перед использованием."""
 from database.connection import get_connection
 
 
@@ -66,6 +67,8 @@ def change_status_with_event(request_id, technician_id, new_status):
     new_status = STATUS_VALUES.get(new_status,new_status)
     if new_status not in STATUS_NAMES:
         raise ValueError('Неизвестный статус.')
+    if new_status in ('completed','pending_confirmation'):
+        raise PermissionError('Для завершения используйте отчёт и подтверждение клиента.')
     with get_connection() as connection:
         with connection.cursor() as cur:
             if _role(cur, technician_id) != 'technician':
@@ -75,6 +78,8 @@ def change_status_with_event(request_id, technician_id, new_status):
             if not row:
                 return False
             old_status, owner_id = row
+            if old_status in ('completed','pending_confirmation','cancelled'):
+                raise ValueError('Статус закрытой заявки нельзя изменить напрямую.')
             if old_status != 'new' and new_status == 'new':
                 raise ValueError('Нельзя вернуть заявку в статус «Новая».')
             if old_status == new_status:
@@ -97,3 +102,100 @@ def get_status_history(request_id,user_id):
                 FROM request_status_history h JOIN app_users u ON u.id=h.actor_id
                 WHERE h.request_id=%s ORDER BY h.id''', (request_id,))
             return cur.fetchall()
+
+
+# Вложения к сообщениям используют существующую таблицу request_attachments V3.
+# Требуется migration_chat_attachments.sql.
+from pathlib import Path as _Path
+from io import BytesIO as _BytesIO
+from PIL import Image as _Image, UnidentifiedImageError as _UnidentifiedImageError
+
+_CHAT_TYPES = {'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png',
+               '.webp':'image/webp','.mp4':'video/mp4','.pdf':'application/pdf',
+               '.txt':'text/plain','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
+_CHAT_IMAGE_LIMIT = 10 * 1024 * 1024
+_CHAT_OTHER_LIMIT = 20 * 1024 * 1024
+
+
+def _read_chat_file(path):
+    file = _Path(path)
+    ext = file.suffix.lower()
+    if ext not in _CHAT_TYPES or not file.is_file():
+        raise ValueError('Разрешены JPG, PNG, WEBP, MP4, PDF, TXT, DOCX.')
+    size = file.stat().st_size
+    limit = _CHAT_IMAGE_LIMIT if ext in ('.jpg','.jpeg','.png','.webp') else _CHAT_OTHER_LIMIT
+    if size < 1 or size > limit:
+        raise ValueError(f'{file.name}: максимальный размер {limit // 1048576} МБ.')
+    data = file.read_bytes()
+    if len(data) != size:
+        raise ValueError('Файл изменился во время загрузки.')
+    if ext in ('.jpg','.jpeg','.png','.webp'):
+        try:
+            with _Image.open(_BytesIO(data)) as img:
+                fmt = img.format
+                img.verify()
+            expected = 'JPEG' if ext in ('.jpg','.jpeg') else ext[1:].upper()
+            if fmt != expected:
+                raise ValueError('Содержимое изображения не соответствует расширению.')
+        except (_UnidentifiedImageError, OSError) as exc:
+            raise ValueError('Некорректный файл изображения.') from exc
+    elif ext == '.mp4' and (len(data) < 12 or data[4:8] != b'ftyp'):
+        raise ValueError('Некорректный MP4.')
+    elif ext == '.pdf' and not data.startswith(b'%PDF-'):
+        raise ValueError('Некорректный PDF.')
+    elif ext == '.docx' and not data.startswith(b'PK'):
+        raise ValueError('Некорректный DOCX.')
+    return file.name, _CHAT_TYPES[ext], data
+
+
+def send_chat_message(request_id, sender_id, body='', paths=()):
+    body = (body or '').strip()
+    paths = list(paths)
+    if len(body) > 4000 or (not body and not paths):
+        raise ValueError('Введите сообщение или прикрепите файл (до 4000 символов).')
+    if len(paths) > 5:
+        raise ValueError('За раз можно прикрепить не более 5 файлов.')
+    # Проверяем файлы до транзакции, чтобы не держать блокировки при чтении диска.
+    files = [_read_chat_file(p) for p in paths]
+    with get_connection() as connection:
+        with connection.cursor() as cur:
+            role, owner_id = _access(cur,request_id,sender_id)
+            cur.execute('INSERT INTO request_messages(request_id,sender_id,body) VALUES (%s,%s,%s) RETURNING id',
+                        (request_id,sender_id,body))
+            message_id = cur.fetchone()[0]
+            for filename,mime,data in files:
+                cur.execute('''INSERT INTO request_attachments
+                  (request_id,uploader_id,report_id,message_id,filename,mime_type,file_size,file_data)
+                  VALUES (%s,%s,NULL,%s,%s,%s,%s,%s)''',
+                  (request_id,sender_id,message_id,filename,mime,len(data),data))
+            label = 'Новое сообщение с вложениями' if files else 'Новое сообщение'
+            if role == 'technician' and owner_id is not None and owner_id != sender_id:
+                cur.execute('''INSERT INTO request_notifications(user_id,request_id,kind,text)
+                               VALUES (%s,%s,'message',%s)''',(owner_id,request_id,label+' от ремонтника'))
+            elif role == 'user':
+                cur.execute('''INSERT INTO request_notifications(user_id,request_id,kind,text)
+                               SELECT id,%s,'message',%s FROM app_users WHERE role='technician' ''',
+                            (request_id,label+' от клиента'))
+            return message_id
+
+
+def get_chat_attachments(request_id,user_id):
+    with get_connection() as connection:
+        with connection.cursor() as cur:
+            _access(cur,request_id,user_id)
+            cur.execute('''SELECT a.id,a.message_id,a.filename,a.mime_type,a.file_size
+                           FROM request_attachments a WHERE a.request_id=%s
+                           AND a.message_id IS NOT NULL ORDER BY a.id''',(request_id,))
+            return cur.fetchall()
+
+
+def download_chat_attachment(attachment_id,user_id):
+    with get_connection() as connection:
+        with connection.cursor() as cur:
+            cur.execute('''SELECT request_id,filename,mime_type,file_data FROM request_attachments
+                           WHERE id=%s AND message_id IS NOT NULL''',(attachment_id,))
+            row=cur.fetchone()
+            if not row:
+                raise ValueError('Вложение не найдено.')
+            _access(cur,row[0],user_id)
+            return row[1],row[2],bytes(row[3])

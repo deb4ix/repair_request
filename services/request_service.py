@@ -12,6 +12,7 @@ STATUS_NAMES = {
     "new": "Новая",
     "in_progress": "В работе",
     "completed": "Завершена",
+    "pending_confirmation": "Ожидает подтверждения",
     "cancelled": "Отменена",
 }
 
@@ -19,6 +20,7 @@ STATUS_VALUES = {
     "Новая": "new",
     "В работе": "in_progress",
     "Завершена": "completed",
+    "Ожидает подтверждения": "pending_confirmation",
     "Отменена": "cancelled",
 }
 
@@ -265,47 +267,19 @@ def get_request_by_id(request_id: int, owner_id=None):
 
 
 def update_request_status(request_id: int, new_status: str) -> bool:
-    """Обновляет статус одним UPDATE; запрещает возвращение к «Новая»."""
-    new_status = STATUS_VALUES.get(new_status, new_status)
-    if new_status not in STATUS_NAMES:
-        raise ValueError("Указан неизвестный статус заявки.")
+    """Старый небезопасный путь отключён. Используйте change_status_with_event."""
+    raise PermissionError("Изменяйте статус через change_status_with_event или подтверждение отчёта.")
 
-    with get_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE repair_requests
-                SET status = %s,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
-                  AND (status = 'new' OR %s <> 'new')
-                RETURNING id;
-                """,
-                (new_status, request_id, new_status),
-            )
-            if cursor.fetchone() is not None:
-                return True
-
-            # Только при неудачном UPDATE выясняем причину.
-            cursor.execute(
-                "SELECT status FROM repair_requests WHERE id = %s;",
-                (request_id,),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                return False
-            if new_status == "new" and row[0] != "new":
-                raise ValueError(
-                    "Нельзя вернуть заявку в статус «Новая» "
-                    "после изменения её первоначального статуса."
-                )
-            return False
 
 def delete_request(request_id: int, owner_id=None) -> bool:
     """Удаляет заявку."""
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            cursor.execute("SELECT status FROM repair_requests WHERE id=%s FOR UPDATE", (request_id,))
+            state = cursor.fetchone()
+            if state and state[0] != "new":
+                raise ValueError("Удалять можно только новые заявки. Остальные сохраняются для истории.")
             if owner_id is None:
                 cursor.execute(
                     """
@@ -507,7 +481,12 @@ def update_request(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
+            cursor.execute("SELECT status FROM repair_requests WHERE id=%s FOR UPDATE", (request_id,))
+            state = cursor.fetchone()
+            if state and state[0] != "new":
+                raise ValueError("Редактирование доступно только для новых заявок.")
             cursor.execute(query, params)
             updated_request = cursor.fetchone()
 
     return updated_request is not None
+

@@ -1,6 +1,8 @@
 import io
 from ui.async_requests import AsyncRequestLoader
 from ui.communication_ui import CommunicationMixin
+from ui.workflow_ui import WorkflowMixin
+from services.settings_service import apply_saved_theme, save_theme
 from pathlib import Path
 from datetime import datetime
 
@@ -18,11 +20,13 @@ from services.request_service import (
 )
 from services.communication_service import change_status_with_event
 
+
 STATUS_FILTER_VALUES = [
     "Все статусы",
     "Новая",
     "В работе",
     "Завершена",
+    "Ожидает подтверждения",
     "Отменена",
 ]
 
@@ -46,10 +50,11 @@ def format_datetime(value):
     return str(value)
 
 
-class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
+class TechnicianWindow(WorkflowMixin, CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
 
     def __init__(self, user, master=None):
         super().__init__(master)
+        apply_saved_theme()
 
         self.current_user = user
         self.title(
@@ -114,7 +119,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             sticky="w",
         )
 
+    
     # Категории
+    
 
     def load_categories(self):
         self.categories = get_categories()
@@ -274,7 +281,7 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
         buttons_frame.grid(
             row=3, column=0, padx=20, pady=(5, 15), sticky="ew"
         )
-        for column in range(3):
+        for column in range(4):
             buttons_frame.grid_columnconfigure(column, weight=1, uniform="actions")
 
         def action_button(text, command, row, column, **kwargs):
@@ -297,6 +304,7 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
         action_button("Обновить список", self.load_requests, 0, 0)
         action_button("Подробнее", self.show_request_details, 0, 1)
         action_button("Изменить статус", self.change_request_status, 0, 2)
+        action_button("Сдать работу", self.open_completion_report, 0, 3)
 
         self._comm_button = action_button(
             "Уведомления (0)", self.open_notifications, 1, 0
@@ -305,21 +313,25 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
         action_button(
             "Удалить заявку",
             self.delete_selected_request,
-            1, 2,
+            2, 0,
             fg_color="#b22222",
             hover_color="#8b0000",
         )
 
-        action_button("Настройки", self.show_settings, 2, 0)
+        action_button("Фото и видео", self.open_attachments, 1, 2)
+        action_button("Отчёты", self.open_reports, 1, 3)
+        action_button("Настройки", self.show_settings, 2, 1)
         action_button(
             "Выйти из аккаунта",
             self.logout,
-            2, 1,
+            2, 2,
             fg_color="#555555",
             hover_color="#333333",
         )
 
     # Оформление таблицы
+
+    
 
     def update_table_theme(self):
         appearance = ctk.get_appearance_mode()
@@ -336,6 +348,7 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 "new": ("#183B2A", "#B7F7CC"),
                 "in_progress": ("#193653", "#BFDBFE"),
                 "completed": ("#383838", "#E5E7EB"),
+                "pending_confirmation": ("#534319", "#FFF1AF"),
                 "cancelled": ("#4A2222", "#FECACA"),
             }
         else:
@@ -349,6 +362,7 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 "new": ("#D9F2DF", "#14532D"),
                 "in_progress": ("#DCEBFA", "#1E40AF"),
                 "completed": ("#E5E7EB", "#374151"),
+                "pending_confirmation": ("#FFF2BD", "#785600"),
                 "cancelled": ("#FADBD8", "#991B1B"),
             }
 
@@ -411,6 +425,7 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             "in_progress": "in_progress",
             "в работе": "in_progress",
             "completed": "completed",
+            "ожидает подтверждения": "pending_confirmation",
             "завершена": "completed",
             "cancelled": "cancelled",
             "canceled": "cancelled",
@@ -419,7 +434,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
 
         return status_tags.get(normalized, "")
 
+    
     # Загрузка и фильтрация заявок
+    
 
     def _on_requests_received(self, requests):
         current_requests_by_id = {
@@ -452,7 +469,7 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
         selected_category = self.category_filter.get()
         status_codes = {
             "новая": "new", "в работе": "in_progress",
-            "завершена": "completed", "отменена": "cancelled",
+            "завершена": "completed", "ожидает подтверждения": "pending_confirmation", "отменена": "cancelled",
         }
         normalized_status = status_codes.get(selected_status, selected_status)
 
@@ -550,7 +567,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             # Ошибка отображения уведомления не должна ломать обновление заявок.
             pass
 
+    
     # Автоматическое обновление
+    
 
     def auto_refresh(self):
         """Проверяет новые заявки каждые 5 секунд без остановки при скрытии окна."""
@@ -566,7 +585,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             # Фоновый загрузчик обычно сам обрабатывает ошибки соединения.
             print(f"Ошибка автоматического обновления заявок: {error}")
 
+    
     # Настройки
+    
 
     def show_settings(self):
         settings_window = ctk.CTkToplevel(self)
@@ -607,9 +628,12 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
         }
 
         ctk.set_appearance_mode(themes[selected_theme])
+        save_theme(themes[selected_theme])
         self.update_table_theme()
 
+    
     # Выход из аккаунта
+    
 
     def logout(self):
         self.stop_communication()
@@ -635,7 +659,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             self.master.deiconify()
             self.master.lift()
 
+    
     # Выбор заявки
+    
 
     def get_selected_request_id(self):
         selected_items = self.tree.selection()
@@ -650,7 +676,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
 
         return int(selected_items[0])
 
+    
     # Подробности заявки и фотография
+    
 
     def show_request_details(self):
         request_id = self.get_selected_request_id()
@@ -801,7 +829,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 parent=self,
             )
 
+    
     # Полноразмерный просмотр фотографии
+    
 
     def show_request_photo(self, request_id: int):
         try:
@@ -855,7 +885,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 parent=self,
             )
 
+    
     # Изменение статуса
+    
 
     def change_request_status(self):
         request_id = self.get_selected_request_id()
@@ -873,6 +905,10 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                     parent=self,
                 )
                 self.load_requests(show_errors=False)
+                return
+
+            if request["status"] in ("completed", "cancelled", "pending_confirmation"):
+                messagebox.showinfo("Статус", "Заявка закрыта или ожидает решения клиента.", parent=self)
                 return
 
             status_window = ctk.CTkToplevel(self)
@@ -896,7 +932,6 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
             available_statuses = [
                 "Новая",
                 "В работе",
-                "Завершена",
                 "Отменена",
             ]
 
@@ -907,7 +942,7 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 status_window,
                 values=available_statuses,
             )
-            status_menu.set(request["status_name"])
+            status_menu.set(request["status_name"] if request["status_name"] in available_statuses else available_statuses[0])
             status_menu.pack(padx=20, pady=10)
 
             def save_status():
@@ -954,7 +989,9 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 parent=self,
             )
 
+    
     # Удаление заявки
+    
 
     def delete_selected_request(self):
         request_id = self.get_selected_request_id()
@@ -994,3 +1031,4 @@ class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
                 f"Не удалось удалить заявку:\n{error}",
                 parent=self,
             )
+
