@@ -1,5 +1,6 @@
 import io
 from ui.async_requests import AsyncRequestLoader
+from ui.communication_ui import CommunicationMixin
 from pathlib import Path
 
 import customtkinter as ctk
@@ -37,7 +38,7 @@ STATUS_FILTER_VALUES = [
 ]
 
 
-class MainWindow(AsyncRequestLoader, ctk.CTkToplevel):
+class MainWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
     def __init__(self, user, master=None):
         super().__init__(master)
 
@@ -55,10 +56,12 @@ class MainWindow(AsyncRequestLoader, ctk.CTkToplevel):
         self.category_id_to_name = {}
 
         self.init_async_loader()
+        self.init_communication()
         self.create_widgets()
         self.update_table_theme()
         self.show_requests()
         self.after(20, self.load_requests)
+        self._client_refresh_id = self.after(5000, self._client_auto_refresh)
 
     
     # Логотип приложения
@@ -406,6 +409,10 @@ class MainWindow(AsyncRequestLoader, ctk.CTkToplevel):
             text="Редактировать",
             command=self.open_edit_request,
         ).pack(side="left", padx=(10, 0))
+
+        self._comm_button = ctk.CTkButton(self.request_actions,text='Уведомления (0)',command=self.open_notifications)
+        self._comm_button.pack(side='left',padx=(10,0))
+        ctk.CTkButton(self.request_actions,text='Чат',command=self.open_request_chat).pack(side='left',padx=(10,0))
 
         self.request_table = ttk.Treeview(
             self.requests_frame,
@@ -1262,7 +1269,16 @@ class MainWindow(AsyncRequestLoader, ctk.CTkToplevel):
             else "Тёмная"
         )
 
+    def _client_auto_refresh(self):
+        if not self.winfo_exists():
+            return
+        try:
+            self.load_requests(show_errors=False)
+        finally:
+            self._client_refresh_id = self.after(5000, self._client_auto_refresh)
+
     def logout(self):
+        self.stop_communication()
         self.destroy()
 
         if self.master is not None and self.master.winfo_exists():

@@ -1,5 +1,6 @@
 import io
 from ui.async_requests import AsyncRequestLoader
+from ui.communication_ui import CommunicationMixin
 from pathlib import Path
 from datetime import datetime
 
@@ -15,7 +16,7 @@ from services.request_service import (
     delete_request,
     get_request_photo,
 )
-
+from services.communication_service import change_status_with_event
 
 STATUS_FILTER_VALUES = [
     "Все статусы",
@@ -45,7 +46,7 @@ def format_datetime(value):
     return str(value)
 
 
-class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
+class TechnicianWindow(CommunicationMixin, AsyncRequestLoader, ctk.CTkToplevel):
 
     def __init__(self, user, master=None):
         super().__init__(master)
@@ -70,6 +71,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
         self._notification_windows = []
 
         self.init_async_loader()
+        self.init_communication()
         self.create_widgets()
         self.after(20, self.load_requests)
 
@@ -112,9 +114,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
             sticky="w",
         )
 
-    
     # Категории
-    
 
     def load_categories(self):
         self.categories = get_categories()
@@ -269,58 +269,57 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
             lambda event: self.show_request_details(),
         )
 
+        # Адаптивная панель действий: три строки вместо одной.
         buttons_frame = ctk.CTkFrame(self)
         buttons_frame.grid(
-            row=3,
-            column=0,
-            padx=20,
-            pady=(5, 20),
-            sticky="ew",
+            row=3, column=0, padx=20, pady=(5, 15), sticky="ew"
         )
+        for column in range(3):
+            buttons_frame.grid_columnconfigure(column, weight=1, uniform="actions")
 
-        ctk.CTkButton(
-            buttons_frame,
-            text="Обновить список",
-            command=self.load_requests,
-        ).pack(side="left", padx=8, pady=10)
+        def action_button(text, command, row, column, **kwargs):
+            button = ctk.CTkButton(
+                buttons_frame,
+                text=text,
+                command=command,
+                width=1,
+                **kwargs,
+            )
+            button.grid(
+                row=row,
+                column=column,
+                padx=6,
+                pady=5,
+                sticky="ew",
+            )
+            return button
 
-        ctk.CTkButton(
-            buttons_frame,
-            text="Подробнее",
-            command=self.show_request_details,
-        ).pack(side="left", padx=8, pady=10)
+        action_button("Обновить список", self.load_requests, 0, 0)
+        action_button("Подробнее", self.show_request_details, 0, 1)
+        action_button("Изменить статус", self.change_request_status, 0, 2)
 
-        ctk.CTkButton(
-            buttons_frame,
-            text="Изменить статус",
-            command=self.change_request_status,
-        ).pack(side="left", padx=8, pady=10)
-
-        ctk.CTkButton(
-            buttons_frame,
-            text="Удалить заявку",
+        self._comm_button = action_button(
+            "Уведомления (0)", self.open_notifications, 1, 0
+        )
+        action_button("Чат", self.open_request_chat, 1, 1)
+        action_button(
+            "Удалить заявку",
+            self.delete_selected_request,
+            1, 2,
             fg_color="#b22222",
             hover_color="#8b0000",
-            command=self.delete_selected_request,
-        ).pack(side="left", padx=8, pady=10)
+        )
 
-        ctk.CTkButton(
-            buttons_frame,
-            text="Настройки",
-            command=self.show_settings,
-        ).pack(side="right", padx=8, pady=10)
-
-        ctk.CTkButton(
-            buttons_frame,
-            text="Выйти из аккаунта",
+        action_button("Настройки", self.show_settings, 2, 0)
+        action_button(
+            "Выйти из аккаунта",
+            self.logout,
+            2, 1,
             fg_color="#555555",
             hover_color="#333333",
-            command=self.logout,
-        ).pack(side="right", padx=8, pady=10)
+        )
 
-    
     # Оформление таблицы
-    
 
     def update_table_theme(self):
         appearance = ctk.get_appearance_mode()
@@ -420,9 +419,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
 
         return status_tags.get(normalized, "")
 
-    
     # Загрузка и фильтрация заявок
-    
 
     def _on_requests_received(self, requests):
         current_requests_by_id = {
@@ -553,9 +550,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
             # Ошибка отображения уведомления не должна ломать обновление заявок.
             pass
 
-    
     # Автоматическое обновление
-    
 
     def auto_refresh(self):
         """Проверяет новые заявки каждые 5 секунд без остановки при скрытии окна."""
@@ -571,9 +566,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
             # Фоновый загрузчик обычно сам обрабатывает ошибки соединения.
             print(f"Ошибка автоматического обновления заявок: {error}")
 
-    
     # Настройки
-    
 
     def show_settings(self):
         settings_window = ctk.CTkToplevel(self)
@@ -616,11 +609,10 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
         ctk.set_appearance_mode(themes[selected_theme])
         self.update_table_theme()
 
-    
     # Выход из аккаунта
-    
 
     def logout(self):
+        self.stop_communication()
         if self._auto_refresh_id is not None:
             try:
                 self.after_cancel(self._auto_refresh_id)
@@ -643,9 +635,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
             self.master.deiconify()
             self.master.lift()
 
-    
     # Выбор заявки
-    
 
     def get_selected_request_id(self):
         selected_items = self.tree.selection()
@@ -660,9 +650,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
 
         return int(selected_items[0])
 
-    
     # Подробности заявки и фотография
-    
 
     def show_request_details(self):
         request_id = self.get_selected_request_id()
@@ -813,9 +801,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
                 parent=self,
             )
 
-    
     # Полноразмерный просмотр фотографии
-    
 
     def show_request_photo(self, request_id: int):
         try:
@@ -869,9 +855,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
                 parent=self,
             )
 
-    
     # Изменение статуса
-    
 
     def change_request_status(self):
         request_id = self.get_selected_request_id()
@@ -928,8 +912,9 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
 
             def save_status():
                 try:
-                    success = update_request_status(
+                    success = change_status_with_event(
                         request_id,
+                        self.current_user["id"],
                         status_menu.get(),
                     )
 
@@ -969,9 +954,7 @@ class TechnicianWindow(AsyncRequestLoader, ctk.CTkToplevel):
                 parent=self,
             )
 
-    
     # Удаление заявки
-    
 
     def delete_selected_request(self):
         request_id = self.get_selected_request_id()
